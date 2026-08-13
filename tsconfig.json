@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/room" },
+    { "path": "./packages/store-sqlite" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/agent" },
+    { "path": "./packages/adapter-acp" },
+    { "path": "./packages/adapter-native" },
+    { "path": "./packages/collaboration" },
+    { "path": "./packages/workspace" },
+    { "path": "./packages/evals" },
+    { "path": "./apps/cli" },
+    { "path": "./apps/desktop" }
+  ]
+}

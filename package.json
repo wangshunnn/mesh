@@ -1,0 +1,33 @@
+{
+  "name": "mesh",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A local-first causal collaboration room for humans and agents.",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b && pnpm --filter @ai-mesh/desktop build:preload && pnpm --filter @ai-mesh/desktop build:renderer",
+    "check": "tsc -b --pretty false",
+    "check:exports": "node scripts/check-workspace-exports.mjs",
+    "clean": "tsc -b --clean",
+    "eval": "pnpm build && pnpm --filter @ai-mesh/evals eval",
+    "mesh": "pnpm --filter @ai-mesh/cli exec mesh",
+    "smoke:desktop": "pnpm --filter @ai-mesh/desktop smoke",
+    "test": "pnpm build && pnpm --filter @ai-mesh/room test && pnpm --filter @ai-mesh/runtime test && pnpm --filter @ai-mesh/store-sqlite test && pnpm --filter @ai-mesh/adapter-acp test && pnpm --filter @ai-mesh/adapter-native test && pnpm --filter @ai-mesh/collaboration test && pnpm --filter @ai-mesh/workspace test && pnpm --filter @ai-mesh/cli test && pnpm --filter @ai-mesh/evals test",
+    "verify": "pnpm clean && pnpm exec tsc -b --force --pretty false && pnpm --filter @ai-mesh/desktop build:preload && pnpm --filter @ai-mesh/desktop build:renderer && pnpm check:exports && pnpm test && pnpm --filter @ai-mesh/evals eval all",
+    "desktop": "pnpm --filter @ai-mesh/desktop dev"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}

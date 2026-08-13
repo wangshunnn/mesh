@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../adapter-acp" },
+    { "path": "../adapter-native" },
+    { "path": "../agent" },
+    { "path": "../collaboration" },
+    { "path": "../protocol" },
+    { "path": "../room" },
+    { "path": "../store-sqlite" }
+  ]
+}

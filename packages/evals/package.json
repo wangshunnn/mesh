@@ -1,0 +1,17 @@
+{
+  "name": "@ai-mesh/evals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "check": "tsc -b --pretty false",
+    "eval": "node dist/cli.js",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@ai-mesh/protocol": "workspace:*",
+    "@ai-mesh/room": "workspace:*",
+    "@ai-mesh/runtime": "workspace:*"
+  }
+}

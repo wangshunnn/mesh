@@ -1,0 +1,16 @@
+{
+  "name": "@ai-mesh/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "mesh": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc -b",
+    "check": "tsc -b --pretty false",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@ai-mesh/protocol": "workspace:*",
+    "@ai-mesh/workspace": "workspace:*"
+  }
+}

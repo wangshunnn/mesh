@@ -1,0 +1,29 @@
+{
+  "name": "@ai-mesh/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/electron/main/index.js",
+  "scripts": {
+    "build": "tsc -b && pnpm build:preload && pnpm build:renderer",
+    "build:preload": "vite build --config vite.preload.config.ts",
+    "build:renderer": "vite build src/renderer --base ./ --outDir ../../dist/renderer --emptyOutDir",
+    "check": "tsc -b --pretty false",
+    "dev": "pnpm build && electron .",
+    "smoke": "pnpm build && electron dist/electron/main/smoke.js",
+    "start": "electron .",
+    "test": "node --test dist/electron/**/*.test.js"
+  },
+  "dependencies": {
+    "@ai-mesh/protocol": "workspace:*",
+    "@ai-mesh/workspace": "workspace:*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "electron": "^37.2.6",
+    "vite": "^7.1.3"
+  }
+}
