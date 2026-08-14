@@ -1,8 +1,38 @@
 # Mesh collaboration architecture
 
+This document records stable design invariants. For current implementation
+status, limitations, verification evidence, and the next milestone, read
+[`project-status.md`](project-status.md). For sequencing and phase gates, read
+[`roadmap.md`](roadmap.md).
+
 ## Product invariant
 
 One room has one shared, replayable reality and many independent participant minds. The kernel does not select the next speaker or resolve a stale participant's decision on its behalf.
+
+## Implementation shape
+
+Mesh is a TypeScript monorepo. Protocol, Room policies, participant runtime,
+Agent sessions, collaboration behavior, persistence, and workspace composition
+are packages below both product entry points. The CLI is the headless/core entry
+point; Electron is a client that bundles a React renderer and talks to the same
+workspace service through typed IPC.
+
+This layering is deliberate:
+
+```text
+CLI -----------------------> @ai-mesh/workspace
+                                  |
+Electron main + typed IPC ------> |
+                                  v
+                       collaboration runtime
+                         /       |        \
+                    adapters   Room     trace journal
+                                  |        |
+                                  +-- SQLite
+```
+
+The product does not currently need a TUI. Rust remains an option for a future
+measured systems constraint, not a default implementation layer.
 
 ## Commit path
 

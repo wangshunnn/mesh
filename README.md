@@ -9,7 +9,7 @@ The current vertical slice includes:
 - SQLite events, idempotency records, and participant cursors;
 - independent agent workers over one canonical shared room history;
 - an ACP adapter for OpenCode and a native JSONL adapter for Codex;
-- an npm-distributed CLI and an Electron + React desktop client;
+- a headless CLI package and an Electron + React desktop client;
 - room chat, attention, presence, tasks, a persistent developer trace, and restart recovery;
 - bounded, change-aware candidate reconciliation that coalesces Room deltas without eager cancellation;
 - deterministic idempotency;
@@ -30,11 +30,15 @@ Run the repeatable non-GUI phase gate with `pnpm verify`; use
 Initialize and inspect a workspace through the CLI:
 
 ```bash
-pnpm mesh init
-pnpm mesh agents
-pnpm mesh message --to codex "Review the current room state"
-pnpm mesh timeline
+pnpm build
+node apps/cli/dist/index.js init
+node apps/cli/dist/index.js agents
+node apps/cli/dist/index.js message --to codex "Review the current room state"
+node apps/cli/dist/index.js timeline
 ```
+
+The intended `pnpm mesh ...` convenience script is currently broken under pnpm
+11; use the built CLI entry above until the roadmap item is fixed.
 
 Run the desktop client after Electron's platform binary has been installed:
 
@@ -46,6 +50,8 @@ Both clients open `.mesh/config.json` and `.mesh/mesh.db` beneath the selected
 workspace. The CLI is a headless entry point over the same runtime, not a
 separate collaboration model.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for milestones and acceptance criteria.
-The current kernel design and persistence contract are documented in
-[`docs/architecture.md`](docs/architecture.md).
+For a new-machine or new-Agent handoff, start with
+[`docs/project-status.md`](docs/project-status.md). The documentation reading
+order is indexed in [`docs/README.md`](docs/README.md), milestones and acceptance
+criteria live in [`docs/roadmap.md`](docs/roadmap.md), and stable design invariants
+are documented in [`docs/architecture.md`](docs/architecture.md).
