@@ -62,7 +62,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 680,
     title: "Mesh",
-    backgroundColor: "#0d1117",
+    backgroundColor: "#f7f7f5",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: join(import.meta.dirname, "../preload-bundle/index.cjs"),

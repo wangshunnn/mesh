@@ -15,7 +15,7 @@ const emptySnapshot: RoomSnapshot = Object.freeze({
 });
 
 const previewSnapshot: RoomSnapshot = Object.freeze({
-  roomId: "room:phase-1-preview",
+  roomId: "room:mesh-preview",
   headSequence: 9,
   agents: Object.freeze([
     Object.freeze({
@@ -43,7 +43,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       sequence: 3,
       threadId: "general",
       from: "human",
-      text: "@opencode map the authentication flow and hand your findings to @codex.",
+      text: "@opencode 请梳理登录认证流程，并把结论交接给 @codex。",
       attention: Object.freeze(["agent:opencode"]),
       respondingTo: Object.freeze([]),
       createdAt: Date.now() - 120_000,
@@ -53,7 +53,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       sequence: 5,
       threadId: "general",
       from: "agent:opencode",
-      text: "The refresh-token path crosses session.ts and token-store.ts. @codex please verify the two callers.",
+      text: "刷新令牌路径会经过 session.ts 和 token-store.ts。@codex 请核对这两处调用方。",
       attention: Object.freeze(["agent:codex"]),
       respondingTo: Object.freeze(["preview:message:1"]),
       createdAt: Date.now() - 70_000,
@@ -63,7 +63,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       sequence: 8,
       threadId: "general",
       from: "agent:codex",
-      text: "Verified both call sites and recorded the follow-up task. @human the handoff is complete.",
+      text: "已核对两处调用，并记录了后续任务。@human，交接完成。",
       attention: Object.freeze(["human"]),
       respondingTo: Object.freeze(["preview:message:2"]),
       createdAt: Date.now() - 25_000,
@@ -72,7 +72,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
   tasks: Object.freeze([
     Object.freeze({
       id: "preview-task",
-      title: "Harden refresh-token rotation",
+      title: "加固刷新令牌轮换逻辑",
       status: "review",
       ownerId: "agent:codex",
       version: 3,
@@ -85,7 +85,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       "human",
       { kind: "thread", id: "general" },
       CoreAction.threadMessageAppend,
-      { kind: "message", text: "Authentication review requested" },
+      { kind: "message", text: "已发起认证流程检查" },
       Date.now() - 120_000,
     ),
     previewEvent(
@@ -93,7 +93,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       "agent:opencode",
       { kind: "thread", id: "general" },
       CoreAction.threadReplyCommit,
-      { kind: "message", text: "Findings handed to Codex" },
+      { kind: "message", text: "结论已交接给 Codex" },
       Date.now() - 70_000,
     ),
     previewEvent(
@@ -109,7 +109,7 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
       "agent:codex",
       { kind: "thread", id: "general" },
       CoreAction.threadReplyCommit,
-      { kind: "message", text: "Verification returned to human" },
+      { kind: "message", text: "核对结果已返回给用户" },
       Date.now() - 25_000,
     ),
     previewEvent(
@@ -168,16 +168,18 @@ export function App(): React.JSX.Element {
     chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [snapshot.messages.length]);
 
-  const invoke = async (key: string, operation: () => Promise<RoomSnapshot>): Promise<void> => {
+  const invoke = async (key: string, operation: () => Promise<RoomSnapshot>): Promise<boolean> => {
     setBusy(key);
     setError(undefined);
     try {
       if (window.mesh === undefined) {
-        throw new Error("Preview mode is read-only. Open the Electron app for live room actions.");
+        throw new Error("预览模式仅供查看，请打开 Electron 应用执行房间操作。");
       }
       setSnapshot(await operation());
+      return true;
     } catch (caught) {
       setError(errorMessage(caught));
+      return false;
     } finally {
       setBusy(undefined);
     }
@@ -189,7 +191,7 @@ export function App(): React.JSX.Element {
       {error === undefined ? null : (
         <div className="error-banner" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => setError(undefined)}>Dismiss</button>
+          <button type="button" onClick={() => setError(undefined)}>关闭</button>
         </div>
       )}
       <div className="workspace-grid">
@@ -197,10 +199,16 @@ export function App(): React.JSX.Element {
         <section className="chat-column">
           <div className="section-heading chat-heading">
             <div>
-              <p className="eyebrow">Shared room</p>
-              <h1>Team chat</h1>
+              <div className="room-title-row">
+                <h1>协作房间</h1>
+                <span className="shared-state"><i /> 已同步</span>
+              </div>
+              <p className="room-description">所有成员共享同一份实时上下文</p>
             </div>
-            <span className="shared-state"><i /> One replayable reality</span>
+            <div className="room-head" title={`当前事件序号 ${String(snapshot.headSequence)}`}>
+              <span>HEAD</span>
+              <strong>{snapshot.headSequence}</strong>
+            </div>
           </div>
           <MessageList snapshot={snapshot} chatEnd={chatEnd} />
           <Composer snapshot={snapshot} busy={busy} invoke={invoke} />
@@ -210,16 +218,18 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               className={panel === "tasks" ? "active" : ""}
+              aria-selected={panel === "tasks"}
               onClick={() => setPanel("tasks")}
             >
-              Tasks <span>{snapshot.tasks.length}</span>
+              任务 <span>{snapshot.tasks.length}</span>
             </button>
             <button
               type="button"
               className={panel === "activity" ? "active" : ""}
+              aria-selected={panel === "activity"}
               onClick={() => setPanel("activity")}
             >
-              Activity <span>{snapshot.timeline.length}</span>
+              动态 <span>{snapshot.timeline.length}</span>
             </button>
           </div>
           {panel === "tasks" ? (
@@ -236,29 +246,33 @@ export function App(): React.JSX.Element {
 interface RuntimeProps {
   readonly snapshot: RoomSnapshot;
   readonly busy: string | undefined;
-  readonly invoke: (key: string, operation: () => Promise<RoomSnapshot>) => Promise<void>;
+  readonly invoke: (key: string, operation: () => Promise<RoomSnapshot>) => Promise<boolean>;
 }
 
 function Header({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
-        <div><strong>Mesh</strong><small>agent team workspace</small></div>
+        <div className="brand-mark" aria-hidden="true">M</div>
+        <strong>Mesh</strong>
       </div>
-      <div className="room-meta">
-        <span className="local-pill">LOCAL</span>
-        <span>{snapshot.roomId}</span>
-        <span className="sequence">HEAD {snapshot.headSequence}</span>
+      <nav className="breadcrumb" aria-label="当前位置">
+        <span>本地工作区</span>
+        <i>/</i>
+        <strong>协作房间</strong>
+      </nav>
+      <div className="topbar-actions">
+        <span className="room-id" title={snapshot.roomId}>{snapshot.roomId}</span>
+        <span className="local-pill"><i /> 本地</span>
+        <button
+          type="button"
+          className="primary compact"
+          disabled={busy !== undefined}
+          onClick={() => void invoke("start-all", () => window.mesh.startAvailableAgents())}
+        >
+          {busy === "start-all" ? "正在启动…" : "启动可用 Agent"}
+        </button>
       </div>
-      <button
-        type="button"
-        className="primary compact"
-        disabled={busy !== undefined}
-        onClick={() => void invoke("start-all", () => window.mesh.startAvailableAgents())}
-      >
-        {busy === "start-all" ? "Starting…" : "Start available agents"}
-      </button>
     </header>
   );
 }
@@ -272,10 +286,21 @@ function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JS
   return (
     <aside className="agent-rail">
       <div className="section-heading">
-        <div><p className="eyebrow">Participants</p><h2>Agents</h2></div>
-        <span className="count-badge">{snapshot.agents.length}</span>
+        <h2>成员</h2>
+        <span className="count-badge">{snapshot.agents.length + 1}</span>
       </div>
       <div className="agent-list">
+        <article className="agent-card human-card">
+          <div className="agent-card-top">
+            <div className="avatar human-avatar">你</div>
+            <div className="agent-identity">
+              <strong>你</strong>
+              <span>@human</span>
+            </div>
+            <i className="status-dot idle" title="在线" />
+          </div>
+          <div className="human-presence">当前用户 · 在线</div>
+        </article>
         {snapshot.agents.map((agent) => {
           const probe = availability.get(agent.id);
           const running = agent.state !== "offline" && agent.state !== "error";
@@ -289,21 +314,21 @@ function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JS
                   <strong>{agent.name}</strong>
                   <span>@{agent.handle}</span>
                 </div>
-                <i className={`status-dot ${agent.state}`} title={agent.state} />
+                <i className={`status-dot ${agent.state}`} title={presenceLabel(agent.state)} />
               </div>
               <div className="agent-facts">
                 <span>{agent.adapterKind}</span>
-                <span>{probe?.available === false ? "not found" : probe?.version ?? "probing"}</span>
+                <span>{probe?.available === false ? "未检测到" : probe?.version ?? "检测中"}</span>
               </div>
               <div className="agent-card-bottom">
-                <span className={`status-label ${agent.state}`}>{agent.state}</span>
+                <span className={`status-label ${agent.state}`}>{presenceLabel(agent.state)}</span>
                 <button
                   type="button"
                   className="ghost compact"
                   disabled={busy !== undefined || probe?.available === false}
                   onClick={() => void invoke(key, () => window.mesh.agentAction({ agentId: agent.id, action }))}
                 >
-                  {busy === key ? "…" : running ? "Stop" : "Start"}
+                  {busy === key ? "…" : running ? "停止" : "启动"}
                 </button>
               </div>
             </article>
@@ -311,8 +336,11 @@ function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JS
         })}
       </div>
       <div className="rail-note">
-        <strong>Shared state, independent minds.</strong>
-        <p>@mentions wake an agent. They never hide information from the rest of the room.</p>
+        <i aria-hidden="true" />
+        <div>
+          <strong>共享上下文</strong>
+          <p>房间消息对所有成员可见，@提及只决定谁需要响应。</p>
+        </div>
       </div>
     </aside>
   );
@@ -328,9 +356,9 @@ function MessageList({
   if (snapshot.messages.length === 0) {
     return (
       <div className="message-list empty-state">
-        <div className="empty-orbit"><span /><span /><span /></div>
-        <h3>Bring the room to life</h3>
-        <p>Address an agent with @handle, or send to the whole team. Every message becomes durable shared context.</p>
+        <div className="empty-mark" aria-hidden="true">M</div>
+        <h3>从一条消息开始</h3>
+        <p>输入 @handle 指定需要响应的 Agent，或直接发送给全体。每条消息都会成为房间的共享上下文。</p>
         <div ref={chatEnd} />
       </div>
     );
@@ -344,15 +372,16 @@ function MessageList({
             <div className="message-avatar">{participantInitial(message.from)}</div>
             <div className="message-body">
               <div className="message-meta">
-                <strong>{participantLabel(snapshot, message.from)}</strong>
-                <span>#{message.sequence}</span>
+                <strong>{participantName(snapshot, message.from)}</strong>
+                <span>{participantLabel(snapshot, message.from)}</span>
                 <time>{formatClock(message.createdAt)}</time>
+                <span className="message-sequence">#{message.sequence}</span>
               </div>
               <p>{renderMentions(message.text)}</p>
               <div className="attention-row">
-                <span>attention</span>
+                <span>关注</span>
                 {message.attention === "team" ? (
-                  <b>@team</b>
+                  <b>@全体成员</b>
                 ) : message.attention.map((participant) => <b key={participant}>{participantLabel(snapshot, participant)}</b>)}
               </div>
             </div>
@@ -376,7 +405,9 @@ function Composer({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element {
     void invoke("send", () => window.mesh.postMessage({
       text: message,
       ...(to === "auto" ? {} : { to }),
-    })).then(() => setText(""));
+    })).then((committed) => {
+      if (committed) setText("");
+    });
   };
   return (
     <form className="composer" onSubmit={send}>
@@ -389,21 +420,21 @@ function Composer({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element {
             event.currentTarget.form?.requestSubmit();
           }
         }}
-        placeholder="Message the room… Try @codex or @opencode"
+        placeholder="发送消息给房间，输入 @ 提及 Agent"
         rows={3}
       />
       <div className="composer-actions">
         <label>
-          <span>Attention</span>
+          <span>关注</span>
           <select value={to} onChange={(event) => setTo(event.target.value)}>
-            <option value="auto">Detect mentions</option>
-            <option value="team">@team</option>
+            <option value="auto">自动识别提及</option>
+            <option value="team">@全体成员</option>
             {snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>@{agent.handle}</option>)}
           </select>
         </label>
-        <span className="composer-hint">Enter to send · Shift+Enter for newline</span>
+        <span className="composer-hint">Enter 发送 · Shift + Enter 换行</span>
         <button className="primary" type="submit" disabled={busy !== undefined || text.trim().length === 0}>
-          {busy === "send" ? "Sending…" : "Send to room"}
+          {busy === "send" ? "发送中…" : "发送"}
         </button>
       </div>
     </form>
@@ -416,22 +447,34 @@ function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element 
     event.preventDefault();
     const next = title.trim();
     if (next.length === 0) return;
-    void invoke("task:create", () => window.mesh.createTask({ title: next })).then(() => setTitle(""));
+    void invoke("task:create", () => window.mesh.createTask({ title: next })).then((committed) => {
+      if (committed) setTitle("");
+    });
   };
   return (
-    <div className="panel-content task-panel">
+    <div className="panel-content task-panel" role="tabpanel" aria-label="任务">
       <form className="quick-task" onSubmit={create}>
-        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="New shared task" />
-        <button type="submit" className="primary square" disabled={busy !== undefined || title.trim().length === 0}>+</button>
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="新建共享任务"
+          aria-label="任务标题"
+        />
+        <button
+          type="submit"
+          className="primary square"
+          aria-label="创建任务"
+          disabled={busy !== undefined || title.trim().length === 0}
+        >+</button>
       </form>
       {snapshot.tasks.length === 0 ? (
-        <div className="small-empty"><strong>No tasks yet</strong><p>Create one and let any agent claim it atomically.</p></div>
+        <div className="small-empty"><strong>还没有任务</strong><p>新建任务后，任意 Agent 都可以原子领取。</p></div>
       ) : (
         <div className="task-list">
           {snapshot.tasks.map((task) => (
             <article className="task-card" key={task.id}>
               <div className="task-title"><i className={`task-state ${task.status}`} /><strong>{task.title}</strong></div>
-              <p>{task.description ?? `Task ${task.id.slice(0, 8)}`}</p>
+              <p>{task.description ?? `任务 ID · ${task.id.slice(0, 8)}`}</p>
               <div className="task-controls">
                 <select
                   value={task.status}
@@ -441,11 +484,11 @@ function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element 
                     status: event.target.value as TaskStatus,
                   }))}
                 >
-                  <option value="todo">Todo</option>
-                  <option value="in_progress">In progress</option>
-                  <option value="blocked">Blocked</option>
-                  <option value="review">Review</option>
-                  <option value="done">Done</option>
+                  <option value="todo">待处理</option>
+                  <option value="in_progress">进行中</option>
+                  <option value="blocked">已阻塞</option>
+                  <option value="review">待评审</option>
+                  <option value="done">已完成</option>
                 </select>
                 {task.ownerId === undefined ? (
                   <select
@@ -460,7 +503,7 @@ function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element 
                       }
                     }}
                   >
-                    <option value="">Claim for…</option>
+                    <option value="">分配给…</option>
                     {snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>@{agent.handle}</option>)}
                   </select>
                 ) : <span className="owner-chip">{participantLabel(snapshot, task.ownerId)}</span>}
@@ -475,16 +518,16 @@ function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.Element 
 
 function ActivityPanel({ snapshot }: { readonly snapshot: RoomSnapshot }): React.JSX.Element {
   return (
-    <div className="panel-content activity-panel">
+    <div className="panel-content activity-panel" role="tabpanel" aria-label="动态">
       {snapshot.timeline.length === 0 ? (
-        <div className="small-empty"><strong>No activity yet</strong><p>Every committed room fact will appear here.</p></div>
+        <div className="small-empty"><strong>还没有动态</strong><p>房间中每个已提交事实都会记录在这里。</p></div>
       ) : (
         snapshot.timeline.slice().reverse().map((event) => (
           <article className="activity-item" key={event.id}>
             <span className="activity-sequence">{event.sequence}</span>
             <div>
               <strong>{activityLabel(event.action)}</strong>
-              <p>{event.actorId} · {event.subject.kind}:{event.subject.id}</p>
+              <p>{participantLabel(snapshot, event.actorId)} · {subjectKindLabel(event.subject.kind)} {event.subject.id}</p>
               <time>{formatClock(event.committedAt)}</time>
             </div>
           </article>
@@ -500,8 +543,13 @@ function participantLabel(snapshot: RoomSnapshot, id: string): string {
   return agent === undefined ? id : `@${agent.handle}`;
 }
 
+function participantName(snapshot: RoomSnapshot, id: string): string {
+  if (id === "human") return "你";
+  return snapshot.agents.find((candidate) => candidate.id === id)?.name ?? id;
+}
+
 function participantInitial(id: string): string {
-  return id === "human" ? "H" : id.split(":").at(-1)?.slice(0, 1).toUpperCase() ?? "A";
+  return id === "human" ? "你" : id.split(":").at(-1)?.slice(0, 1).toUpperCase() ?? "A";
 }
 
 function renderMentions(text: string): React.ReactNode {
@@ -511,11 +559,61 @@ function renderMentions(text: string): React.ReactNode {
 }
 
 function activityLabel(action: string): string {
-  return action.split(".").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" · ");
+  switch (action) {
+    case CoreAction.threadMessageAppend:
+      return "发送了消息";
+    case CoreAction.threadReplyCommit:
+      return "提交了回复";
+    case CoreAction.participantPresenceSet:
+      return "更新了在线状态";
+    case CoreAction.agentTurnComplete:
+      return "完成了一轮工作";
+    case CoreAction.taskCreate:
+      return "创建了任务";
+    case CoreAction.taskClaim:
+      return "领取了任务";
+    case CoreAction.taskUpdate:
+      return "更新了任务";
+    case CoreAction.decisionPropose:
+      return "提出了决策";
+    case CoreAction.artifactPublish:
+      return "发布了产物";
+    default:
+      return action;
+  }
+}
+
+function subjectKindLabel(kind: SubjectRef["kind"]): string {
+  const labels: Record<SubjectRef["kind"], string> = {
+    room: "房间",
+    thread: "话题",
+    task: "任务",
+    decision: "决策",
+    artifact: "产物",
+    resource: "资源",
+    participant: "成员",
+  };
+  return labels[kind];
+}
+
+function presenceLabel(state: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    offline: "离线",
+    starting: "启动中",
+    idle: "空闲",
+    working: "工作中",
+    waiting: "等待中",
+    error: "异常",
+  };
+  return labels[state] ?? state;
 }
 
 function formatClock(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp);
 }
 
 function errorMessage(error: unknown): string {
@@ -533,7 +631,7 @@ function previewEvent(
   return Object.freeze({
     id: `preview:event:${String(sequence)}`,
     sequence,
-    roomId: "room:phase-1-preview",
+    roomId: "room:mesh-preview",
     actorId,
     subject: Object.freeze({ ...subject }),
     subjectVersion: 1,
