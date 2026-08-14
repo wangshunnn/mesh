@@ -2,7 +2,7 @@
 
 Mesh is a local-first, vendor-neutral causal collaboration room for humans and agents.
 
-The current Phase 1 vertical slice includes:
+The current vertical slice includes:
 
 - an append-only room event ledger;
 - subject-scoped versions and causal intent commits;
@@ -10,7 +10,8 @@ The current Phase 1 vertical slice includes:
 - independent agent workers over one canonical shared room history;
 - an ACP adapter for OpenCode and a native JSONL adapter for Codex;
 - an npm-distributed CLI and an Electron + React desktop client;
-- room chat, attention, presence, tasks, activity, and restart recovery;
+- room chat, attention, presence, tasks, a persistent developer trace, and restart recovery;
+- bounded, change-aware candidate reconciliation that coalesces Room deltas without eager cancellation;
 - deterministic idempotency;
 - executable collaboration evaluations, including unordered counting.
 

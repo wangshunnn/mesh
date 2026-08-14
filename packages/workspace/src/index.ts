@@ -31,6 +31,7 @@ export type {
   RoomSnapshot,
   TaskView,
 } from "@ai-mesh/collaboration";
+export type { TraceRecord } from "@ai-mesh/protocol";
 
 export const workspaceConfigVersion = 1;
 
@@ -131,6 +132,7 @@ export class MeshWorkspace {
     const runtime = new CollaborationRuntime({
       room,
       cursors: store.cursors(),
+      traces: store.traces(config.roomId),
       cwd: root,
     });
     const workspace = new MeshWorkspace(

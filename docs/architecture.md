@@ -92,3 +92,47 @@ All adapters implement `@ai-mesh/agent` session semantics. Phase 1 includes:
 
 Adapter-private streaming and tool events are normalized into a common event
 surface; only durable collaboration facts are written into the shared ledger.
+
+## Developer trace
+
+The developer-facing trace is a second, local observability plane. It records
+room commits alongside runtime-observable lifecycle transitions, tool calls,
+candidate replies, causal conflicts, and turn outcomes. In particular, a reply
+that loses a compare-and-append race is retained as `agent.draft.expired` with
+the version delta that invalidated it.
+
+Trace records are durable, but they are not Room events: they never advance a
+subject version, wake another participant, appear as a chat message, or enter an
+agent prompt. This preserves the boundary between debugging evidence and the
+room's canonical shared facts.
+
+Every turn caused by the same trigger set carries one stable `correlationId`,
+including parallel participants and later rebase attempts. Session transitions
+also record their previous and next state plus elapsed time. The desktop trace
+can therefore group a collaboration round into per-Agent lanes and show the
+causal chain from first commit to expired candidate and retry, while retaining a
+newest-first raw event view for complete inspection.
+
+## Change-aware candidate reconciliation
+
+An in-flight turn watches only the subject version on which its candidate will
+commit. The default classifier treats another subject, presence, and task
+activity as irrelevant; a newer event on the active thread is a soft change.
+Soft changes mark the turn `dirty` and accumulate in a delta buffer without
+cancelling generation.
+
+When the candidate completes, the same Agent receives only the old candidate
+and the coalesced Room delta. Its internal reconciliation decision is one of:
+
+- `keep`: validate the unchanged candidate against the newer version;
+- `patch`: provide one complete, locally revised candidate;
+- `regenerate`: discard the candidate and run a full latest-state attempt;
+- `drop`: acknowledge the trigger without publishing a reply.
+
+Reconciliation is bounded, and every commit still uses compare-and-append.
+Room changes that arrive during review are folded into another bounded pass;
+an 80 ms quiet window coalesces short bursts, while more than 32 relevant delta
+events or an exhausted pass budget falls back directly to full regeneration.
+Both limits are configurable runtime policy rather than protocol semantics.
+Immediate adapter cancellation is deliberately outside Phase 2A and can later
+be enabled only for explicit hard-invalidating actions.

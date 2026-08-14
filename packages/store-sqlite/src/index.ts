@@ -8,6 +8,9 @@ import {
   type RoomEvent,
   type RoomId,
   type SubjectRef,
+  type TraceJournal,
+  type TraceRecord,
+  type TraceRecordInput,
 } from "@ai-mesh/protocol";
 import {
   PolicyRoomLedger,
@@ -23,7 +26,7 @@ import {
 } from "@ai-mesh/room";
 import type { CursorKey, CursorStore } from "@ai-mesh/runtime";
 
-const schemaVersion = 1;
+const schemaVersion = 2;
 
 export interface SqliteStoreOptions {
   readonly createDirectory?: boolean;
@@ -61,6 +64,11 @@ export class SqliteStore {
   cursors(): CursorStore {
     this.#assertOpen();
     return new SqliteCursorStore(this.#database, () => this.#assertOpen());
+  }
+
+  traces(roomId: RoomId): TraceJournal {
+    this.#assertOpen();
+    return new SqliteTraceJournal(this.#database, roomId, () => this.#assertOpen());
   }
 
   close(): void {
@@ -137,6 +145,21 @@ export class SqliteStore {
           sequence INTEGER NOT NULL CHECK (sequence >= 0),
           PRIMARY KEY (room_id, participant_id, subscription_id)
         ) STRICT;
+
+        CREATE TABLE IF NOT EXISTS runtime_traces (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_id TEXT NOT NULL,
+          trace_id TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          occurred_at INTEGER NOT NULL,
+          payload_json TEXT NOT NULL,
+          UNIQUE (room_id, trace_id)
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS runtime_traces_by_room
+          ON runtime_traces (room_id, sequence);
       `);
 
       const version = this.#database.prepare("SELECT MAX(version) AS version FROM mesh_schema").get();
@@ -410,6 +433,63 @@ class SqliteCursorStore implements CursorStore {
   }
 }
 
+class SqliteTraceJournal implements TraceJournal {
+  readonly #database: DatabaseSync;
+  readonly #roomId: RoomId;
+  readonly #assertOpen: () => void;
+
+  constructor(database: DatabaseSync, roomId: RoomId, assertOpen: () => void) {
+    this.#database = database;
+    this.#roomId = roomId;
+    this.#assertOpen = assertOpen;
+  }
+
+  append(input: TraceRecordInput): TraceRecord {
+    this.#assertOpen();
+    if (input.roomId !== this.#roomId) {
+      throw new Error(`Trace ${input.id} belongs to ${input.roomId}, not ${this.#roomId}.`);
+    }
+    const payload = {
+      ...(input.correlationId === undefined ? {} : { correlationId: input.correlationId }),
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+      ...(input.attempt === undefined ? {} : { attempt: input.attempt }),
+      ...(input.content === undefined ? {} : { content: input.content }),
+      ...(input.detail === undefined ? {} : { detail: input.detail }),
+      ...(input.data === undefined ? {} : { data: input.data }),
+    };
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO runtime_traces
+           (room_id, trace_id, actor_id, kind, status, occurred_at, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.roomId,
+        input.id,
+        input.actorId,
+        input.kind,
+        input.status,
+        input.occurredAt,
+        stringifyJson(payload),
+      );
+    const stored = this.#database
+      .prepare("SELECT * FROM runtime_traces WHERE room_id = ? AND trace_id = ?")
+      .get(this.#roomId, input.id);
+    if (stored === undefined) {
+      throw new Error(`Trace ${input.id} could not be persisted.`);
+    }
+    return rowToTrace(stored);
+  }
+
+  read(): readonly TraceRecord[] {
+    this.#assertOpen();
+    const rows = this.#database
+      .prepare("SELECT * FROM runtime_traces WHERE room_id = ? ORDER BY sequence ASC")
+      .all(this.#roomId);
+    return Object.freeze(rows.map(rowToTrace));
+  }
+}
+
 function rowToEvent(row: Record<string, SQLOutputValue>): RoomEvent {
   return deepFreeze({
     id: readString(row, "event_id"),
@@ -427,6 +507,32 @@ function rowToEvent(row: Record<string, SQLOutputValue>): RoomEvent {
     idempotencyKey: readString(row, "idempotency_key"),
     causedBy: parseJson<RoomEvent["causedBy"]>(readString(row, "caused_by_json")),
     committedAt: readNumber(row, "committed_at"),
+  });
+}
+
+function rowToTrace(row: Record<string, SQLOutputValue>): TraceRecord {
+  const payload = parseJson<{
+    readonly correlationId?: string;
+    readonly turnId?: string;
+    readonly attempt?: number;
+    readonly content?: string;
+    readonly detail?: string;
+    readonly data?: Readonly<Record<string, unknown>>;
+  }>(readString(row, "payload_json"));
+  return deepFreeze({
+    id: readString(row, "trace_id"),
+    sequence: readNumber(row, "sequence"),
+    roomId: readString(row, "room_id"),
+    actorId: readString(row, "actor_id"),
+    kind: readString(row, "kind"),
+    status: readString(row, "status") as TraceRecord["status"],
+    occurredAt: readNumber(row, "occurred_at"),
+    ...(payload.correlationId === undefined ? {} : { correlationId: payload.correlationId }),
+    ...(payload.turnId === undefined ? {} : { turnId: payload.turnId }),
+    ...(payload.attempt === undefined ? {} : { attempt: payload.attempt }),
+    ...(payload.content === undefined ? {} : { content: payload.content }),
+    ...(payload.detail === undefined ? {} : { detail: payload.detail }),
+    ...(payload.data === undefined ? {} : { data: payload.data }),
   });
 }
 

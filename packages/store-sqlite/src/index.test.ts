@@ -139,3 +139,43 @@ test("cursor cannot move backwards in SQLite", () => {
   assert.equal(cursors.load(key), 5);
   store.close();
 });
+
+test("runtime diagnostics, including expired drafts, survive reopen", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mesh-sqlite-trace-"));
+  const path = join(directory, "mesh.db");
+  const firstStore = new SqliteStore(path);
+  const firstJournal = firstStore.traces(roomId);
+  const written = firstJournal.append({
+    id: "trace:expired-draft",
+    roomId,
+    actorId: "agent:a",
+    kind: "agent.draft.expired",
+    status: "expired",
+    occurredAt: 1234,
+    correlationId: "collaboration:counting",
+    turnId: "turn:a:1",
+    attempt: 1,
+    content: "candidate output that was never sent",
+    detail: "room advanced",
+    data: { observedVersion: 1, currentVersion: 2 },
+  });
+  firstStore.close();
+
+  const reopenedStore = new SqliteStore(path);
+  const reopenedJournal = reopenedStore.traces(roomId);
+  assert.deepEqual(reopenedJournal.read(), [written]);
+  assert.deepEqual(
+    reopenedJournal.append({
+      id: "trace:expired-draft",
+      roomId,
+      actorId: "agent:a",
+      kind: "agent.draft.expired",
+      status: "expired",
+      occurredAt: 1234,
+      content: "duplicate append must not create another record",
+    }),
+    written,
+  );
+  assert.equal(reopenedJournal.read().length, 1);
+  reopenedStore.close();
+});

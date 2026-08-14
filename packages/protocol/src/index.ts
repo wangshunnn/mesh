@@ -135,6 +135,47 @@ export interface AgentTurnCompletedPayload {
   readonly replyEventId?: EventId;
 }
 
+/**
+ * Developer-facing runtime diagnostics live outside the canonical room ledger.
+ * They may contain candidate output that was never committed as a shared fact.
+ */
+export type TraceStatus =
+  | "info"
+  | "running"
+  | "dirty"
+  | "pending"
+  | "committed"
+  | "completed"
+  | "expired"
+  | "cancelled"
+  | "failed";
+
+export interface TraceRecordInput {
+  readonly id: string;
+  readonly roomId: RoomId;
+  readonly actorId: ParticipantId;
+  readonly kind: string;
+  readonly status: TraceStatus;
+  readonly occurredAt: number;
+  /** Stable across participants and retries caused by the same room trigger set. */
+  readonly correlationId?: string;
+  readonly turnId?: string;
+  readonly attempt?: number;
+  readonly content?: string;
+  readonly detail?: string;
+  readonly data?: Readonly<Record<string, unknown>>;
+}
+
+export interface TraceRecord extends TraceRecordInput {
+  /** Monotonic sequence in the diagnostic journal, independent of RoomEvent.sequence. */
+  readonly sequence: number;
+}
+
+export interface TraceJournal {
+  append(input: TraceRecordInput): TraceRecord;
+  read(): readonly TraceRecord[];
+}
+
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "review" | "done";
 
 export interface TaskCreatedPayload {

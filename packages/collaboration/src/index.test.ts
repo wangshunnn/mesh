@@ -116,6 +116,392 @@ test("an unordered team count converges from live room state without duplicate n
   await runtime.close();
 });
 
+test("a concurrent count patches the stale candidate without repeating the full turn", async () => {
+  const room = new InMemoryRoomLedger("room:counting-reconciliation");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let arrivals = 0;
+  let releaseInitial: (() => void) | undefined;
+  const bothInitialPromptsStarted = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  const turns = new Map<string, number>();
+  const counter = async ({
+    agentId,
+    prompt,
+  }: {
+    readonly agentId: string;
+    readonly prompt: { readonly text: string };
+  }): Promise<string> => {
+    turns.set(agentId, (turns.get(agentId) ?? 0) + 1);
+    if (prompt.text.startsWith("MESH INTERNAL RECONCILIATION")) {
+      return JSON.stringify({
+        decision: "patch",
+        text: "报数 2 @human",
+        reason: "Another participant already committed 1.",
+      });
+    }
+    arrivals += 1;
+    if (arrivals === 2) {
+      releaseInitial?.();
+    }
+    await bothInitialPromptsStarted;
+    return "报数 1 @human";
+  };
+  for (const id of ["a", "b"] as const) {
+    runtime.registerAgent({
+      id: `agent:${id}`,
+      name: id.toUpperCase(),
+      handle: id,
+      respondToTeam: true,
+      adapter: new ScriptedAgentAdapter(id, counter),
+    });
+    await runtime.startAgent(`agent:${id}`);
+  }
+
+  runtime.postMessage({ text: "报数！", attention: "team", idempotencyKey: "count:reconcile" });
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  assert.deepEqual(
+    snapshot.messages.slice(1).map((message) => message.text).sort(),
+    ["报数 1 @human", "报数 2 @human"],
+  );
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.turn.started").length, 2);
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.draft.expired").length, 0);
+  const patched = snapshot.trace.filter(
+    (record) =>
+      record.kind === "agent.reconciliation.decided" && record.data?.decision === "patch",
+  );
+  assert.equal(patched.length, 1);
+  assert.equal(patched[0]?.content, "报数 2 @human");
+  assert.deepEqual([...turns.values()].sort(), [1, 2]);
+  await runtime.close();
+});
+
+test("multiple soft thread changes coalesce into one keep review without a full retry", async () => {
+  const room = new InMemoryRoomLedger("room:reconciliation-keep");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let promptCount = 0;
+  let releaseInitial: (() => void) | undefined;
+  let reportInitialStarted: (() => void) | undefined;
+  const initialStarted = new Promise<void>((resolve) => {
+    reportInitialStarted = resolve;
+  });
+  const holdInitial = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  runtime.registerAgent({
+    id: "agent:a",
+    name: "A",
+    handle: "a",
+    respondToTeam: true,
+    adapter: new ScriptedAgentAdapter("a", async ({ prompt }) => {
+      promptCount += 1;
+      if (prompt.text.startsWith("MESH INTERNAL RECONCILIATION")) {
+        return JSON.stringify({
+          decision: "keep",
+          reason: "The added context does not affect the answer.",
+        });
+      }
+      reportInitialStarted?.();
+      await holdInitial;
+      return "@human 原候选仍然成立";
+    }),
+  });
+  await runtime.startAgent("agent:a");
+  runtime.postMessage({ text: "给出结论", attention: "team", idempotencyKey: "keep:start" });
+  await initialStarted;
+  for (let index = 1; index <= 3; index += 1) {
+    runtime.postMessage({
+      text: `补充第 ${String(index)} 条无冲突背景`,
+      attention: ["human"],
+      idempotencyKey: `keep:background:${String(index)}`,
+    });
+  }
+  releaseInitial?.();
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  assert.equal(promptCount, 2);
+  assert.equal(snapshot.messages.at(-1)?.text, "@human 原候选仍然成立");
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.turn.started").length, 1);
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.turn.dirty").length, 3);
+  assert.equal(
+    snapshot.trace.filter((record) => record.kind === "agent.reconciliation.started").length,
+    1,
+  );
+  assert.equal(
+    snapshot.trace.some(
+      (record) =>
+        record.kind === "agent.reconciliation.decided" && record.data?.decision === "keep",
+    ),
+    true,
+  );
+  assert.equal(snapshot.trace.some((record) => record.kind === "agent.draft.expired"), false);
+  await runtime.close();
+});
+
+test("a hot Room delta skips reconciliation and falls back to one full retry", async () => {
+  const room = new InMemoryRoomLedger("room:reconciliation-overflow");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+    maxReconciliationDeltaEvents: 2,
+    reconciliationQuietWindowMs: 0,
+  });
+  let fullPromptCount = 0;
+  let reconciliationPromptCount = 0;
+  let releaseInitial: (() => void) | undefined;
+  let reportInitialStarted: (() => void) | undefined;
+  const initialStarted = new Promise<void>((resolve) => {
+    reportInitialStarted = resolve;
+  });
+  const holdInitial = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  runtime.registerAgent({
+    id: "agent:a",
+    name: "A",
+    handle: "a",
+    respondToTeam: true,
+    adapter: new ScriptedAgentAdapter("a", async ({ prompt }) => {
+      if (prompt.text.startsWith("MESH INTERNAL RECONCILIATION")) {
+        reconciliationPromptCount += 1;
+        return JSON.stringify({ decision: "keep" });
+      }
+      fullPromptCount += 1;
+      if (fullPromptCount === 1) {
+        reportInitialStarted?.();
+        await holdInitial;
+        return "@human 过期候选";
+      }
+      assert.match(prompt.text, /room changed during your previous reasoning/);
+      return "@human 基于最新状态完整重算";
+    }),
+  });
+  await runtime.startAgent("agent:a");
+  runtime.postMessage({ text: "给出结论", attention: "team", idempotencyKey: "overflow:start" });
+  await initialStarted;
+  for (let index = 1; index <= 3; index += 1) {
+    runtime.postMessage({
+      text: `快速变化 ${String(index)}`,
+      attention: ["human"],
+      idempotencyKey: `overflow:change:${String(index)}`,
+    });
+  }
+  releaseInitial?.();
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  assert.equal(fullPromptCount, 2);
+  assert.equal(reconciliationPromptCount, 0);
+  assert.equal(snapshot.messages.at(-1)?.text, "@human 基于最新状态完整重算");
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.turn.started").length, 2);
+  assert.equal(snapshot.trace.filter((record) => record.kind === "agent.draft.expired").length, 1);
+  assert.equal(
+    snapshot.trace.some(
+      (record) =>
+        record.kind === "agent.reconciliation.decided" &&
+        record.data?.decision === "regenerate" &&
+        record.data?.deltaOverflow === true,
+    ),
+    true,
+  );
+  await runtime.close();
+});
+
+test("a drop reconciliation acknowledges the trigger without publishing the stale candidate", async () => {
+  const room = new InMemoryRoomLedger("room:reconciliation-drop");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let releaseInitial: (() => void) | undefined;
+  let reportInitialStarted: (() => void) | undefined;
+  const initialStarted = new Promise<void>((resolve) => {
+    reportInitialStarted = resolve;
+  });
+  const holdInitial = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  runtime.registerAgent({
+    id: "agent:a",
+    name: "A",
+    handle: "a",
+    respondToTeam: true,
+    adapter: new ScriptedAgentAdapter("a", async ({ prompt }) => {
+      if (prompt.text.startsWith("MESH INTERNAL RECONCILIATION")) {
+        return JSON.stringify({
+          decision: "drop",
+          reason: "The human already supplied the requested answer.",
+        });
+      }
+      reportInitialStarted?.();
+      await holdInitial;
+      return "@human 这条候选不应发送";
+    }),
+  });
+  await runtime.startAgent("agent:a");
+  const trigger = runtime.postMessage({
+    text: "帮我回答",
+    attention: "team",
+    idempotencyKey: "drop:start",
+  });
+  await initialStarted;
+  runtime.postMessage({
+    text: "我已经自己解决了",
+    attention: ["human"],
+    idempotencyKey: "drop:resolved",
+  });
+  releaseInitial?.();
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  assert.equal(snapshot.messages.some((message) => message.from === "agent:a"), false);
+  const receipt = room.readEvents().find(
+    (event) =>
+      event.action === CoreAction.agentTurnComplete &&
+      event.actorId === "agent:a",
+  );
+  assert.deepEqual(receipt?.payload, {
+    kind: "agent-turn-completed",
+    respondingTo: [trigger.id],
+    outcome: "empty",
+  });
+  assert.equal(
+    snapshot.trace.some(
+      (record) =>
+        record.kind === "agent.reconciliation.decided" && record.data?.decision === "drop",
+    ),
+    true,
+  );
+  assert.equal(snapshot.trace.some((record) => record.kind === "agent.draft.expired"), false);
+  await runtime.close();
+});
+
+test("an unrelated task change does not dirty or reconcile an active thread turn", async () => {
+  const room = new InMemoryRoomLedger("room:reconciliation-irrelevant");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let promptCount = 0;
+  let releaseInitial: (() => void) | undefined;
+  let reportInitialStarted: (() => void) | undefined;
+  const initialStarted = new Promise<void>((resolve) => {
+    reportInitialStarted = resolve;
+  });
+  const holdInitial = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  runtime.registerAgent({
+    id: "agent:a",
+    name: "A",
+    handle: "a",
+    respondToTeam: true,
+    adapter: new ScriptedAgentAdapter("a", async () => {
+      promptCount += 1;
+      reportInitialStarted?.();
+      await holdInitial;
+      return "@human 完成";
+    }),
+  });
+  await runtime.startAgent("agent:a");
+  runtime.postMessage({ text: "处理线程", attention: "team", idempotencyKey: "irrelevant:start" });
+  await initialStarted;
+  runtime.createTask({ id: "task:unrelated", title: "无关任务" });
+  releaseInitial?.();
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  assert.equal(promptCount, 1);
+  assert.equal(snapshot.trace.some((record) => record.kind === "agent.turn.dirty"), false);
+  assert.equal(snapshot.trace.some((record) => record.kind.startsWith("agent.reconciliation.")), false);
+  await runtime.close();
+});
+
+test("a stale candidate reply remains visible in diagnostics without becoming a room message", async () => {
+  const room = new InMemoryRoomLedger("room:expired-draft");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let arrivals = 0;
+  let releaseFirstAttempts: (() => void) | undefined;
+  const firstAttemptsReady = new Promise<void>((resolve) => {
+    releaseFirstAttempts = resolve;
+  });
+  const counter = async ({ prompt }: { readonly prompt: { readonly text: string } }): Promise<string> => {
+    if (prompt.text.startsWith("MESH INTERNAL RECONCILIATION")) {
+      return JSON.stringify({
+        decision: "regenerate",
+        reason: "The count must be recomputed from the latest room state.",
+      });
+    }
+    const retry = prompt.text.includes("room changed during your previous reasoning");
+    if (!retry) {
+      arrivals += 1;
+      if (arrivals === 2) {
+        releaseFirstAttempts?.();
+      }
+      await firstAttemptsReady;
+    }
+    const counts = [...prompt.text.matchAll(/"text":"报数 (\d+)/g)].map((match) =>
+      Number.parseInt(match[1] ?? "0", 10),
+    );
+    return `报数 ${String(Math.max(0, ...counts) + 1)} @human`;
+  };
+  for (const id of ["a", "b"] as const) {
+    runtime.registerAgent({
+      id: `agent:${id}`,
+      name: id.toUpperCase(),
+      handle: id,
+      respondToTeam: true,
+      adapter: new ScriptedAgentAdapter(id, counter),
+    });
+    await runtime.startAgent(`agent:${id}`);
+  }
+
+  runtime.postMessage({ text: "报数！", attention: "team", idempotencyKey: "count:trace" });
+  await runtime.settle();
+
+  const snapshot = runtime.snapshot();
+  const expired = snapshot.trace.filter((record) => record.kind === "agent.draft.expired");
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0]?.content, "报数 1 @human");
+  assert.equal(expired[0]?.status, "expired");
+  const turnStarts = snapshot.trace.filter((record) => record.kind === "agent.turn.started");
+  assert.equal(typeof turnStarts[0]?.correlationId, "string");
+  assert.equal(new Set(turnStarts.map((record) => record.correlationId)).size, 1);
+  assert.equal(expired[0]?.correlationId, turnStarts[0]?.correlationId);
+  const waitingTransition = snapshot.trace.find(
+    (record) => record.kind === "agent.session.status" && record.data?.toStatus === "waiting",
+  );
+  assert.equal(waitingTransition?.data?.fromStatus, "working");
+  assert.equal(waitingTransition?.correlationId, turnStarts[0]?.correlationId);
+  assert.equal(typeof waitingTransition?.data?.statusDurationMs, "number");
+  assert.equal(
+    snapshot.messages.some(
+      (message) => message.from === expired[0]?.actorId && message.text === expired[0]?.content,
+    ),
+    false,
+  );
+  assert.equal(room.readEvents().some((event) => event.action.startsWith("agent.draft.")), false);
+  await runtime.close();
+});
+
 test("every agent sees shared history while attention wakes only its recipients", async () => {
   const { runtime, turns } = runtimeWithTwoAgents();
   await runtime.startAgent("agent:a");

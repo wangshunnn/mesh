@@ -52,3 +52,33 @@ Phase gate:
 - no browser console diagnostics during desktop visual QA.
 
 Implementation status: **ready for acceptance**.
+
+## Phase 2 — Change-aware reconciliation
+
+### Phase 2A — Candidate reconciliation
+
+- [x] Subject-aware Room change classifier
+- [x] Per-turn delta buffer without eager cancellation
+- [x] Coalesced `keep`, `patch`, `regenerate`, and `drop` protocol
+- [x] Bounded reconciliation passes with compare-and-append as the final guard
+- [x] Developer trace for dirty detection, delta review, and reconciliation outcome
+- [x] Concurrent counting patches one stale number without repeating the full turn
+- [x] Multiple soft updates coalesce into one review
+- [x] Hot Room overflow bypasses review and falls back to one full retry
+- [x] Unrelated task activity does not dirty a thread turn
+
+Phase gate:
+
+- no eager cancellation for ordinary Room messages;
+- short bursts coalesce for 80 ms by default, with at most 32 relevant delta events per review;
+- one full generation plus at most the configured reconciliation budget before a full retry;
+- no stale candidate enters the canonical Room history;
+- clean TypeScript, test, eval, Electron smoke, and desktop visual checks.
+
+Implementation status: **ready for acceptance**.
+
+### Phase 2B — Explicit hard invalidation
+
+Reserved for explicit stop/supersede actions and adapter cancellation. It will
+only proceed after Phase 2A trace data shows that cancellation saves meaningful
+work without causing restart churn.
