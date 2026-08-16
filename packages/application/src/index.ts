@@ -86,8 +86,15 @@ export interface WorkspaceConfigPreview {
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;
+  /** Opaque revision of the persisted config file, or null when no file backs the preview. */
+  readonly revision: string | null;
   readonly source: WorkspaceConfigSource;
   readonly config: WorkspaceConfig;
+}
+
+/** Result of one revision-checked, atomic local configuration save. */
+export interface WorkspaceConfigWriteResult extends WorkspaceConfigPreview {
+  readonly changed: boolean;
 }
 
 export type AgentAction = "start" | "stop" | "restart" | "wake";

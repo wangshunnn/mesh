@@ -299,6 +299,7 @@ const previewConfig: WorkspaceConfigPreview = Object.freeze({
   dataDirectory: "/workspace/mesh/.mesh",
   configPath: "/workspace/mesh/.mesh/config.json",
   databasePath: "/workspace/mesh/.mesh/mesh.db",
+  revision: null,
   source: "file",
   config: Object.freeze({
     version: 1,

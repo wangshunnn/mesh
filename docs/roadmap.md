@@ -2,9 +2,9 @@
 
 Last updated: **2026-08-16**
 
-Starting Git baseline for the current increment: **`b782266`**
+Starting Git baseline for the current increment: **`6c73acd`**
 
-Current position: **Phase 2A verified; Phase 3A read-only enabling work is in progress**
+Current position: **Phase 2A verified; Phase 3A headless configuration persistence is in progress**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -169,8 +169,9 @@ configure, understand, and run without editing implementation files.
 
 ### Phase 3A — Workspace, Agent, and model configuration
 
-Current phase. Read-only inspection and headless foundations may proceed while
-configuration persistence remains behind the entry gate.
+Current phase. The configuration model and portable-versus-machine-local
+boundary are approved; implementation is proceeding from the headless core
+toward CLI and desktop workflows.
 
 Proposed scope:
 
@@ -182,6 +183,12 @@ Proposed scope:
 - [x] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
 - [x] Preview effective configuration without writing `.mesh/config.json`
   through the headless API, CLI, and typed desktop IPC/UI
+- [x] Approve the config-v1 ownership model: portable intent, machine-local
+  commands/trust, no stored credentials, and explicit reload after save
+- [x] Add canonical config-v1 parse/serialize round trips and revision-checked,
+  serialized atomic persistence to the headless workspace API
+- [x] Expose the same safe edit contract through a CLI
+  `config preview` → `validate` → `apply` round trip
 - [x] Separate the browser-safe application/client contract from the local
   workspace composition root
 - [x] Separate config resolution and built-in adapter providers behind an
@@ -189,16 +196,18 @@ Proposed scope:
 - [x] Enforce the internal workspace dependency graph, TypeScript references,
   cycle freedom, and Desktop browser boundary in `pnpm verify`
 - [ ] Preserve a headless API for the same operations
-- [ ] Add config migration and round-trip tests before changing config version 1
+- [x] Add config-v1 round-trip tests before changing its schema
+- [ ] Add explicit migration fixtures before introducing a later config version
 
-Entry gate: approve the product configuration model and decide which settings are
-portable versus machine-local.
+Entry gate: **satisfied on 2026-08-16**. The approved model is recorded in
+[`configuration.md`](configuration.md).
 
 Exit gate: on a clean machine, a user can create a workspace, configure at least
 one available Agent, start it, and complete a Room conversation without manually
 editing JSON.
 
-Status: **in progress at the read-only boundary; configuration writes remain gated**.
+Status: **in progress; headless and CLI safe writes are implemented, while
+desktop editing remains**.
 
 ### Phase 3B — Complete local collaboration workflows
 

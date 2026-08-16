@@ -9,6 +9,7 @@ export {
   type WorkspaceConfig,
   type WorkspaceConfigPreview,
   type WorkspaceConfigSource,
+  type WorkspaceConfigWriteResult,
   type WorkspacePermissionPolicy,
 } from "@ai-mesh/application";
 export type { TraceRecord } from "@ai-mesh/protocol";
@@ -20,9 +21,15 @@ export {
 } from "./adapters.js";
 export {
   defaultWorkspaceConfig,
+  parseWorkspaceConfig,
   previewWorkspaceConfig,
   resolveWorkspaceRoot,
+  saveWorkspaceConfig,
+  serializeWorkspaceConfig,
   validateWorkspaceConfig,
+  WorkspaceConfigConflictError,
+  WorkspaceConfigLockedError,
+  type SaveWorkspaceConfigInput,
   type WorkspaceConfigInput,
 } from "./config.js";
 export {

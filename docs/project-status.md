@@ -4,7 +4,7 @@ Last updated: **2026-08-16**
 
 Implementation branch: **`main`**
 
-Starting Git baseline for the current increment: **`b782266`** (`feat(desktop): add read-only workspace config view`)
+Starting Git baseline for the current increment: **`6c73acd`** (`refactor(architecture): enforce package boundaries`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -23,13 +23,16 @@ Electron GUI, developer trace, and bounded candidate reconciliation exist. Clean
 machine onboarding, GUI configuration, packaged releases, a stable public SDK,
 and remote multi-machine Rooms do not yet exist.
 
-Phase 3A enabling work has started without changing configuration version 1: the
-root `pnpm mesh ...` entry point is repaired and covered by a smoke check, and a
-headless effective-config preview can inspect defaults or an existing config
-without creating `.mesh/` state. The same effective snapshot now crosses typed
-Electron IPC into a read-only desktop configuration view showing its source,
-workspace paths, and resolved Room/Agent values. The Phase 3A product
-configuration entry gate remains open; no write model has been selected.
+Phase 3A now has an approved configuration model without changing configuration
+version 1. The headless API can parse and canonically serialize all current
+fields, preview an opaque file revision without creating `.mesh/` state, and
+persist one complete validated document through a revision-checked, serialized
+atomic replacement. Default workspace creation uses the same safe persistence
+path. A changed save deliberately requires the caller to close and reopen the
+immutable workspace composition. The typed Electron IPC and desktop view remain
+read-only. The CLI exposes a workspace-bound `config preview` → `validate` →
+`apply` edit round trip with the same revision protection; GUI editing is the
+next product slice.
 
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
@@ -39,8 +42,8 @@ composition are separate modules, with an immutable code-level provider registry
 for the two config-v1 adapter kinds. Collaboration projection, reconciliation,
 trace, identifiers, and public runtime types are split into focused internal
 modules. An executable dependency allowlist and package READMEs document and
-enforce the intended seams. This is not external plugin support and does not
-resolve the Phase 3A configuration-write gate.
+enforce the intended seams. This is not external plugin support; the approved
+configuration boundary remains closed to the two built-in adapter kinds.
 
 | Area | Current state |
 | --- | --- |
@@ -48,12 +51,12 @@ resolve the Phase 3A configuration-write gate.
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
 | Desktop product | Chinese local-room GUI with trajectory and read-only configuration views; development build only |
-| CLI | Built headless workspace entry point with a verified root `pnpm mesh` shortcut |
+| CLI | Headless Room workflows plus revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Local SQLite under `.mesh/` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
-| Current phase | Phase 3A local product configuration and onboarding (read-only boundary) |
+| Current phase | Phase 3A local product configuration and onboarding (headless safe-write boundary) |
 | Phase 2B cancellation | Gated on trace evidence; not the default next step |
 
 ## Implemented behavior
@@ -143,9 +146,12 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 - `@ai-mesh/application` owns browser-safe product projections and the
   transport-neutral client contract; it contains no host implementation.
 - `@ai-mesh/workspace` resolves config and composes SQLite, registered adapter
-  providers, and collaboration runtime.
+  providers, and collaboration runtime. Its headless config API exposes
+  canonical version-1 parse/serialize, opaque revisions, stale-write rejection,
+  and atomic whole-document persistence.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
-  a side-effect-free effective-config preview, and a real-Agent demo.
+  a side-effect-free effective-config preview, config validation and safe apply,
+  and a real-Agent demo.
 - `@ai-mesh/desktop` implements the application contract through one shared typed
   Electron IPC registration path and a React GUI, including a read-only
   projection of the effective workspace config.
@@ -194,6 +200,21 @@ same complete IPC registration used by the real app. Captured configuration-view
 QA at 1440×900 and 1040×680 showed no clipping, horizontal overflow, unusable
 cards, or renderer warning/error diagnostics.
 
+The Phase 3A headless configuration persistence increment passed `pnpm verify`
+on macOS on 2026-08-16. Workspace tests cover every current config-v1 field in a
+canonical round trip, default creation through the safe writer, no-op saves,
+successful replacements, stale revision conflicts, and temporary/lock cleanup.
+The full gate also passed package boundaries, forced TypeScript builds, package
+exports, all package tests, 16/16 collaboration tests, and all six kernel evals.
+`pnpm smoke:desktop` also passed the typed config preview over IPC and the
+configuration layouts at 1440×900 and 1040×680.
+
+The following CLI configuration slice also passed `pnpm verify` on 2026-08-16.
+Four CLI tests cover side-effect-free preview and validation, first creation from
+an edited preview, persisted updates, stale-revision rejection, and rejection of
+an edit document bound to another workspace. The root `pnpm mesh --help` smoke
+now exposes `config preview`, `config validate`, and `config apply`.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
@@ -203,10 +224,9 @@ These are current boundaries, not regressions:
    navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live under ignored `.mesh/`; they do not sync through Git.
-3. **Manual configuration.** The GUI can inspect effective Agent commands,
-   permission policies, prompts, and response-to-team behavior, but changing
-   them still requires editing `.mesh/config.json`; provider/model settings and
-   safe GUI persistence are not defined yet.
+3. **No GUI configuration editing.** Headless and CLI safe writes now exist, but
+   the desktop configuration view remains read-only. Provider/model adapter
+   semantics and GUI editing are not implemented yet.
 4. **Two production adapter kinds.** Workspace validation and its immutable
    code-level provider registry currently accept only `opencode-acp` and
    `codex-native`; there is no dynamic or external plugin loading contract.
@@ -338,8 +358,8 @@ Do not silently decide these while implementing an unrelated task:
 - whether multiple threads belong inside one Room before multi-Room support;
 - the stable public split between Room SDK, collaboration runtime, adapters, and
   CLI packages;
-- how provider, model, command, permissions, and system prompts should appear in
-  product configuration;
+- how future provider/model selection maps onto each adapter contract and how the
+  approved configuration fields should be presented in the GUI;
 - installer platforms, signing, release automation, and update policy;
 - the trust, identity, authorization, and synchronization model for remote Rooms.
 

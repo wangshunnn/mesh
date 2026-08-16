@@ -15,7 +15,9 @@ the original design conversation.
    behind the Room, runtime, persistence, adapter, and trace boundaries.
 4. [`package-boundaries.md`](package-boundaries.md) — the executable monorepo
    dependency map and extension seams.
-5. The root [`README.md`](../README.md) — short product overview and common
+5. [`configuration.md`](configuration.md) — the approved Phase 3A ownership,
+   revision, and safe-write model for workspace configuration.
+6. The root [`README.md`](../README.md) — short product overview and common
    development commands.
 
 ## Source-of-truth rules
@@ -28,6 +30,8 @@ the original design conversation.
   tracker.
 - `package-boundaries.md` explains the policy enforced by
   `scripts/check-package-boundaries.mjs`.
+- `configuration.md` defines the approved configuration persistence boundary and
+  the portable-versus-machine-local classification.
 
 When a phase is completed, update its status and verification evidence in the
 same commit. If the documents disagree with the code, stop, inspect the relevant

@@ -137,8 +137,16 @@ Effective configuration types and client projections live in
 `@ai-mesh/application`; side-effect-free resolution and validation live in
 `@ai-mesh/workspace`. The CLI and Electron main process invoke the workspace;
 the sandboxed renderer receives only the application projection and never reads
-`.mesh/config.json` or workspace paths directly. Read-only inspection does not
-imply or define future configuration write, credential, or migration policy.
+`.mesh/config.json` or workspace paths directly.
+
+Phase 3A configuration writes use one complete validated document, an opaque
+revision from the caller's preview, and an atomic same-directory replacement.
+Stale revisions are rejected. An open workspace remains an immutable composition
+snapshot, so a changed save requires close and reopen rather than mutating live
+Room or Agent resources in place. Credentials are not part of workspace config,
+and elevated permission policy is machine-local trust that must not transfer
+silently. The complete ownership and evolution rules are recorded in
+[`configuration.md`](configuration.md).
 
 The workspace adapter registry is an immutable code-level injection seam. It
 removes provider construction from general workspace lifecycle code and permits

@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import type { MessageAttention, TaskStatus } from "@ai-mesh/protocol";
-import { MeshWorkspace, previewWorkspaceConfig } from "@ai-mesh/workspace";
+import {
+  MeshWorkspace,
+  previewWorkspaceConfig,
+  saveWorkspaceConfig,
+  validateWorkspaceConfig,
+} from "@ai-mesh/workspace";
 
 const argv = process.argv.slice(2);
 const command = argv.shift() ?? "help";
@@ -57,10 +63,77 @@ try {
 
 function configCommand(workspaceRoot: string, args: string[]): void {
   const action = args.shift() ?? "preview";
-  if (action !== "preview") {
+  if (action === "preview") {
+    console.log(JSON.stringify(previewWorkspaceConfig({ root: workspaceRoot }), undefined, 2));
+    return;
+  }
+  if (action !== "validate" && action !== "apply") {
     throw new Error(`Unknown config action ${action}. Run mesh help.`);
   }
-  console.log(JSON.stringify(previewWorkspaceConfig({ root: workspaceRoot }), undefined, 2));
+  const inputPath = resolve(requireArgument(args, `mesh config ${action} <file>`));
+  const document = readJsonDocument(inputPath);
+  if (action === "validate") {
+    const config = validateWorkspaceConfig(
+      isRecord(document) && "config" in document ? document.config : document,
+    );
+    console.log(
+      `Valid workspace config v${String(config.version)}: ${String(config.agents.length)} agent(s).`,
+    );
+    return;
+  }
+  const edit = configEditDocument(document, inputPath, workspaceRoot);
+  console.log(
+    JSON.stringify(
+      saveWorkspaceConfig({
+        root: workspaceRoot,
+        config: edit.config,
+        expectedRevision: edit.revision,
+      }),
+      undefined,
+      2,
+    ),
+  );
+}
+
+function readJsonDocument(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Config edit document ${path} contains invalid JSON.`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+function configEditDocument(
+  value: unknown,
+  path: string,
+  workspaceRoot: string,
+): {
+  readonly revision: string | null;
+  readonly config: ReturnType<typeof validateWorkspaceConfig>;
+} {
+  if (!isRecord(value)) {
+    throw new Error(`Config edit document ${path} must be created by mesh config preview.`);
+  }
+  if (typeof value.root !== "string" || resolve(value.root) !== workspaceRoot) {
+    throw new Error(`Config edit document ${path} belongs to a different workspace.`);
+  }
+  const expectedDataDirectory = resolve(join(workspaceRoot, ".mesh"));
+  if (
+    typeof value.dataDirectory !== "string" ||
+    resolve(value.dataDirectory) !== expectedDataDirectory
+  ) {
+    throw new Error(`Config edit document ${path} has an unexpected data directory.`);
+  }
+  if (value.revision !== null && typeof value.revision !== "string") {
+    throw new Error(`Config edit document ${path} has an invalid revision.`);
+  }
+  return Object.freeze({
+    revision: value.revision,
+    config: validateWorkspaceConfig(value.config),
+  });
 }
 
 async function agentsCommand(workspace: MeshWorkspace, args: string[]): Promise<void> {
@@ -256,6 +329,10 @@ function isTaskStatus(value: string): value is TaskStatus {
   return ["todo", "in_progress", "blocked", "review", "done"].includes(value);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function printHelp(): void {
   console.log(`Mesh CLI
 
@@ -263,6 +340,8 @@ Usage: mesh <command> [--root <workspace>]
 
   init                              create .mesh config and database
   config preview                    preview effective config without writing files
+  config validate <file>            validate a config or preview edit document
+  config apply <preview-file>       safely apply an edited config preview
   status                            show room, agents, messages, and tasks
   agents [list]                     probe configured agents
   agents start|stop|restart <agent> manage one agent session

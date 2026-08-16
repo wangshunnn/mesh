@@ -1,4 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 import {
@@ -7,6 +18,7 @@ import {
   type WorkspaceConfig,
   type WorkspaceConfigPreview,
   type WorkspaceConfigSource,
+  type WorkspaceConfigWriteResult,
 } from "@ai-mesh/application";
 
 export interface WorkspaceConfigInput {
@@ -15,28 +27,145 @@ export interface WorkspaceConfigInput {
   readonly config?: WorkspaceConfig;
 }
 
+export interface SaveWorkspaceConfigInput {
+  readonly root: string;
+  readonly dataDirectory?: string;
+  readonly config: WorkspaceConfig;
+  /** Revision returned by the preview that the caller edited. Null means no file existed. */
+  readonly expectedRevision: string | null;
+}
+
+export class WorkspaceConfigConflictError extends Error {
+  readonly expectedRevision: string | null;
+  readonly actualRevision: string | null;
+
+  constructor(expectedRevision: string | null, actualRevision: string | null) {
+    super("Workspace config changed after it was read. Preview it again before saving.");
+    this.name = "WorkspaceConfigConflictError";
+    this.expectedRevision = expectedRevision;
+    this.actualRevision = actualRevision;
+  }
+}
+
+export class WorkspaceConfigLockedError extends Error {
+  readonly lockPath: string;
+
+  constructor(lockPath: string, options?: ErrorOptions) {
+    super(`Workspace config is already being saved (${lockPath}).`, options);
+    this.name = "WorkspaceConfigLockedError";
+    this.lockPath = lockPath;
+  }
+}
+
 /** Resolve the effective version-1 configuration without creating local state. */
 export function previewWorkspaceConfig(options: WorkspaceConfigInput): WorkspaceConfigPreview {
-  const root = resolve(options.root);
-  const dataDirectory = resolve(options.dataDirectory ?? join(root, ".mesh"));
-  const configPath = join(dataDirectory, "config.json");
-  const databasePath = join(dataDirectory, "mesh.db");
+  const { root, dataDirectory, configPath, databasePath } = workspaceConfigPaths(options);
   const source: WorkspaceConfigSource =
     options.config !== undefined ? "provided" : existsSync(configPath) ? "file" : "default";
-  const config =
-    options.config !== undefined
-      ? validateWorkspaceConfig(options.config)
-      : source === "file"
-        ? validateWorkspaceConfig(JSON.parse(readFileSync(configPath, "utf8")))
-        : defaultWorkspaceConfig();
+  const serialized = source === "file" ? readFileSync(configPath, "utf8") : undefined;
+  const config = options.config !== undefined
+    ? validateWorkspaceConfig(options.config)
+    : serialized === undefined
+      ? defaultWorkspaceConfig()
+      : parseWorkspaceConfig(serialized);
   return Object.freeze({
     root,
     dataDirectory,
     configPath,
     databasePath,
+    revision: serialized === undefined ? null : revisionOf(serialized),
     source,
     config,
   });
+}
+
+/** Parse and normalize one versioned config document. */
+export function parseWorkspaceConfig(serialized: string): WorkspaceConfig {
+  try {
+    return validateWorkspaceConfig(JSON.parse(serialized));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error("Workspace config contains invalid JSON.", { cause: error });
+    }
+    throw error;
+  }
+}
+
+/** Serialize one validated config into the canonical version-1 representation. */
+export function serializeWorkspaceConfig(config: WorkspaceConfig): string {
+  return `${JSON.stringify(validateWorkspaceConfig(config), undefined, 2)}\n`;
+}
+
+/**
+ * Persist a complete config document after checking the revision observed by the caller.
+ *
+ * The replacement is atomic. An already-open MeshWorkspace keeps its startup snapshot;
+ * callers must close and reopen it after a changed save.
+ */
+export function saveWorkspaceConfig(options: SaveWorkspaceConfigInput): WorkspaceConfigWriteResult {
+  const paths = workspaceConfigPaths(options);
+  const serialized = serializeWorkspaceConfig(options.config);
+  const lockPath = `${paths.configPath}.lock`;
+  mkdirSync(paths.dataDirectory, { recursive: true });
+
+  let lockDescriptor: number;
+  try {
+    lockDescriptor = openSync(lockPath, "wx", 0o600);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "EEXIST") {
+      throw new WorkspaceConfigLockedError(lockPath, { cause: error });
+    }
+    throw error;
+  }
+
+  let temporaryPath: string | undefined;
+  try {
+    writeFileSync(lockDescriptor, `${String(process.pid)}\n`, "utf8");
+    const current = existsSync(paths.configPath)
+      ? readFileSync(paths.configPath, "utf8")
+      : undefined;
+    const actualRevision = current === undefined ? null : revisionOf(current);
+    if (actualRevision !== options.expectedRevision) {
+      throw new WorkspaceConfigConflictError(options.expectedRevision, actualRevision);
+    }
+
+    if (current === serialized) {
+      return configWriteResult(paths, parseWorkspaceConfig(serialized), actualRevision, false);
+    }
+
+    temporaryPath = join(
+      paths.dataDirectory,
+      `.config.${String(process.pid)}.${randomUUID()}.tmp`,
+    );
+    const descriptor = openSync(temporaryPath, "wx", 0o600);
+    try {
+      writeFileSync(descriptor, serialized, "utf8");
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    const latest = existsSync(paths.configPath)
+      ? readFileSync(paths.configPath, "utf8")
+      : undefined;
+    const latestRevision = latest === undefined ? null : revisionOf(latest);
+    if (latestRevision !== actualRevision) {
+      throw new WorkspaceConfigConflictError(options.expectedRevision, latestRevision);
+    }
+    renameSync(temporaryPath, paths.configPath);
+    temporaryPath = undefined;
+    return configWriteResult(
+      paths,
+      parseWorkspaceConfig(serialized),
+      revisionOf(serialized),
+      true,
+    );
+  } finally {
+    if (temporaryPath !== undefined) {
+      rmSync(temporaryPath, { force: true });
+    }
+    closeSync(lockDescriptor);
+    rmSync(lockPath, { force: true });
+  }
 }
 
 export function defaultWorkspaceConfig(): WorkspaceConfig {
@@ -68,6 +197,7 @@ export function validateWorkspaceConfig(value: unknown): WorkspaceConfig {
   if (!isRecord(value) || value.version !== workspaceConfigVersion) {
     throw new Error(`Workspace config must use version ${String(workspaceConfigVersion)}.`);
   }
+  assertKnownKeys(value, ["version", "roomId", "agents"], "Workspace config");
   if (typeof value.roomId !== "string" || value.roomId.length === 0) {
     throw new Error("Workspace config requires a roomId.");
   }
@@ -80,6 +210,20 @@ export function validateWorkspaceConfig(value: unknown): WorkspaceConfig {
     if (!isRecord(entry)) {
       throw new Error(`Agent config ${String(index)} must be an object.`);
     }
+    assertKnownKeys(
+      entry,
+      [
+        "id",
+        "name",
+        "handle",
+        "adapter",
+        "command",
+        "permissionPolicy",
+        "respondToTeam",
+        "systemPrompt",
+      ],
+      `Agent config ${String(index)}`,
+    );
     const id = requiredString(entry, "id", index);
     const name = requiredString(entry, "name", index);
     const handle = requiredString(entry, "handle", index).replace(/^@/, "").toLowerCase();
@@ -104,17 +248,22 @@ export function validateWorkspaceConfig(value: unknown): WorkspaceConfig {
     ) {
       throw new Error(`Agent config ${String(index)} has an invalid permission policy.`);
     }
+    const command = optionalString(entry, "command", index, false);
+    const systemPrompt = optionalString(entry, "systemPrompt", index, true);
+    if (entry.respondToTeam !== undefined && typeof entry.respondToTeam !== "boolean") {
+      throw new Error(`Agent config ${String(index)} has an invalid respondToTeam value.`);
+    }
     return Object.freeze({
       id,
       name,
       handle,
       adapter,
-      ...(typeof entry.command === "string" ? { command: entry.command } : {}),
+      ...(command === undefined ? {} : { command }),
       ...(permissionPolicy === undefined ? {} : { permissionPolicy }),
       ...(typeof entry.respondToTeam === "boolean"
         ? { respondToTeam: entry.respondToTeam }
         : {}),
-      ...(typeof entry.systemPrompt === "string" ? { systemPrompt: entry.systemPrompt } : {}),
+      ...(systemPrompt === undefined ? {} : { systemPrompt }),
     });
   });
   return Object.freeze({
@@ -126,6 +275,46 @@ export function validateWorkspaceConfig(value: unknown): WorkspaceConfig {
 
 export function resolveWorkspaceRoot(input: string): string {
   return isAbsolute(input) ? input : resolve(input);
+}
+
+interface WorkspaceConfigPaths {
+  readonly root: string;
+  readonly dataDirectory: string;
+  readonly configPath: string;
+  readonly databasePath: string;
+}
+
+function workspaceConfigPaths(options: {
+  readonly root: string;
+  readonly dataDirectory?: string;
+}): WorkspaceConfigPaths {
+  const root = resolve(options.root);
+  const dataDirectory = resolve(options.dataDirectory ?? join(root, ".mesh"));
+  return Object.freeze({
+    root,
+    dataDirectory,
+    configPath: join(dataDirectory, "config.json"),
+    databasePath: join(dataDirectory, "mesh.db"),
+  });
+}
+
+function configWriteResult(
+  paths: WorkspaceConfigPaths,
+  config: WorkspaceConfig,
+  revision: string | null,
+  changed: boolean,
+): WorkspaceConfigWriteResult {
+  return Object.freeze({
+    ...paths,
+    revision,
+    source: "file",
+    config,
+    changed,
+  });
+}
+
+function revisionOf(serialized: string): string {
+  return `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
 }
 
 function requiredString(
@@ -140,6 +329,38 @@ function requiredString(
   return found;
 }
 
+function optionalString(
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+  index: number,
+  allowEmpty: boolean,
+): string | undefined {
+  const found = value[key];
+  if (found === undefined) {
+    return undefined;
+  }
+  if (typeof found !== "string" || (!allowEmpty && found.length === 0)) {
+    throw new Error(`Agent config ${String(index)} has an invalid ${key} value.`);
+  }
+  return found;
+}
+
+function assertKnownKeys(
+  value: Readonly<Record<string, unknown>>,
+  knownKeys: readonly string[],
+  label: string,
+): void {
+  const known = new Set(knownKeys);
+  const unknown = Object.keys(value).find((key) => !known.has(key));
+  if (unknown !== undefined) {
+    throw new Error(`${label} has an unknown ${unknown} field.`);
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
 }

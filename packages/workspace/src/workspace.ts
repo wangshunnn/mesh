@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 
 import type {
   RoomSnapshot,
@@ -31,7 +31,11 @@ import {
   createBuiltinWorkspaceAdapterRegistry,
   type WorkspaceAdapterRegistry,
 } from "./adapters.js";
-import { previewWorkspaceConfig, type WorkspaceConfigInput } from "./config.js";
+import {
+  previewWorkspaceConfig,
+  saveWorkspaceConfig,
+  type WorkspaceConfigInput,
+} from "./config.js";
 
 export interface OpenWorkspaceOptions extends WorkspaceConfigInput {
   readonly persistDefaultConfig?: boolean;
@@ -62,6 +66,7 @@ export class MeshWorkspace {
   readonly configPath: string;
   readonly databasePath: string;
   readonly configSource: WorkspaceConfigSource;
+  readonly configRevision: string | null;
   readonly config: WorkspaceConfig;
   readonly runtime: CollaborationRuntime;
 
@@ -75,6 +80,7 @@ export class MeshWorkspace {
     configPath: string,
     databasePath: string,
     configSource: WorkspaceConfigSource,
+    configRevision: string | null,
     config: WorkspaceConfig,
     store: SqliteStore,
     runtime: CollaborationRuntime,
@@ -84,6 +90,7 @@ export class MeshWorkspace {
     this.configPath = configPath;
     this.databasePath = databasePath;
     this.configSource = configSource;
+    this.configRevision = configRevision;
     this.config = config;
     this.#store = store;
     this.runtime = runtime;
@@ -93,8 +100,14 @@ export class MeshWorkspace {
     const preview = previewWorkspaceConfig(options);
     const { root, dataDirectory, configPath, databasePath, config } = preview;
     mkdirSync(dataDirectory, { recursive: true });
+    let configRevision = preview.revision;
     if (preview.source === "default" && options.persistDefaultConfig !== false) {
-      writeFileSync(configPath, `${JSON.stringify(config, undefined, 2)}\n`, "utf8");
+      configRevision = saveWorkspaceConfig({
+        root,
+        dataDirectory,
+        config,
+        expectedRevision: preview.revision,
+      }).revision;
     }
 
     const store = new SqliteStore(databasePath);
@@ -111,6 +124,7 @@ export class MeshWorkspace {
       configPath,
       databasePath,
       preview.source,
+      configRevision,
       config,
       store,
       runtime,
@@ -150,6 +164,7 @@ export class MeshWorkspace {
       dataDirectory: this.dataDirectory,
       configPath: this.configPath,
       databasePath: this.databasePath,
+      revision: this.configRevision,
       source: this.configSource,
       config: this.config,
     });
