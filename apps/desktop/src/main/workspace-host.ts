@@ -17,6 +17,7 @@ type SnapshotListener = (snapshot: RoomSnapshot) => void;
 export class DesktopWorkspaceHost {
   readonly root: string;
   readonly meshHome: string;
+  readonly sessionId: string;
 
   readonly #listeners = new Set<SnapshotListener>();
   #workspace: MeshWorkspace | undefined;
@@ -27,10 +28,18 @@ export class DesktopWorkspaceHost {
   private constructor(workspace: MeshWorkspace) {
     this.root = workspace.root;
     this.meshHome = workspace.meshHome;
+    this.sessionId = workspace.sessionId;
     this.#install(workspace);
   }
 
-  static open(root: string, options: { readonly meshHome?: string } = {}): DesktopWorkspaceHost {
+  static open(
+    root: string,
+    options: {
+      readonly meshHome?: string;
+      readonly sessionId?: string;
+      readonly createSession?: boolean;
+    } = {},
+  ): DesktopWorkspaceHost {
     return new DesktopWorkspaceHost(MeshWorkspace.open({ root, ...options }));
   }
 
@@ -50,6 +59,7 @@ export class DesktopWorkspaceHost {
       const previous = active.configPreview();
       const written = saveWorkspaceConfig({
         workspaceId: previous.workspaceId,
+        sessionId: previous.sessionId,
         root: this.root,
         meshHome: this.meshHome,
         config: input.config,
@@ -68,17 +78,18 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome }));
+        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
       } catch (reloadError) {
         try {
           saveWorkspaceConfig({
             workspaceId: previous.workspaceId,
+            sessionId: previous.sessionId,
             root: this.root,
             meshHome: this.meshHome,
             config: previous.config,
             expectedRevision: written.revision,
           });
-          this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome }));
+          this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
         } catch (recoveryError) {
           throw new AggregateError(
             [reloadError, recoveryError],
@@ -108,7 +119,7 @@ export class DesktopWorkspaceHost {
     }
     return this.#enqueue(async () => {
       // Validate the current file before giving up the known-good live composition.
-      previewWorkspaceConfig({ root: this.root, meshHome: this.meshHome });
+      previewWorkspaceConfig({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId });
       const active = this.#requireWorkspace();
       const previous = active.configPreview();
       this.#detach();
@@ -120,13 +131,14 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome }));
+        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
       } catch (reloadError) {
         try {
           this.#install(
             MeshWorkspace.open({
               root: this.root,
               meshHome: this.meshHome,
+              sessionId: this.sessionId,
               config: previous.config,
               persistDefaultConfig: false,
             }),

@@ -33,8 +33,10 @@ export interface WorkspaceConfigInput extends WorkspaceStorageInput {
 }
 
 export interface SaveWorkspaceConfigInput extends WorkspaceStorageInput {
-  /** Stable id returned by the preview the caller edited. */
+  /** Stable project id returned by the preview the caller edited. */
   readonly workspaceId: string;
+  /** Stable session id returned by the preview the caller edited. */
+  readonly sessionId: string;
   readonly config: WorkspaceConfig;
   /** Revision returned by the preview that the caller edited. Null means no file existed. */
   readonly expectedRevision: string | null;
@@ -65,19 +67,34 @@ export class WorkspaceConfigLockedError extends Error {
 /** Resolve the effective version-1 configuration without creating local state. */
 export function previewWorkspaceConfig(options: WorkspaceConfigInput): WorkspaceConfigPreview {
   const paths = inspectWorkspaceStorage(options);
-  const { workspaceId, root, meshHome, dataDirectory, configPath, databasePath } = paths;
-  const legacyConfigPath = join(paths.legacyDataDirectory, "config.json");
+  const {
+    workspaceId,
+    sessionId,
+    root,
+    meshHome,
+    projectKey,
+    registryPath,
+    projectionCachePath,
+    sessionDirectory,
+    headerPath,
+    dataDirectory,
+    configPath,
+    databasePath,
+  } = paths;
+  const legacyConfigPath = paths.migrationSourceDirectory === undefined
+    ? undefined
+    : join(paths.migrationSourceDirectory, "config.json");
   const source: WorkspaceConfigSource =
     options.config !== undefined
       ? "provided"
       : existsSync(configPath)
         ? "file"
-        : existsSync(legacyConfigPath)
+        : legacyConfigPath !== undefined && existsSync(legacyConfigPath)
           ? "legacy"
           : "default";
   const serialized = source === "file"
     ? readFileSync(configPath, "utf8")
-    : source === "legacy"
+    : source === "legacy" && legacyConfigPath !== undefined
       ? readFileSync(legacyConfigPath, "utf8")
       : undefined;
   const config = options.config !== undefined
@@ -87,8 +104,14 @@ export function previewWorkspaceConfig(options: WorkspaceConfigInput): Workspace
       : parseWorkspaceConfig(serialized);
   return Object.freeze({
     workspaceId,
+    sessionId,
     root,
     meshHome,
+    projectKey,
+    registryPath,
+    projectionCachePath,
+    sessionDirectory,
+    headerPath,
     dataDirectory,
     configPath,
     databasePath,
@@ -300,8 +323,14 @@ function configWriteResult(
 ): WorkspaceConfigWriteResult {
   return Object.freeze({
     workspaceId: paths.workspaceId,
+    sessionId: paths.sessionId,
     root: paths.root,
     meshHome: paths.meshHome,
+    projectKey: paths.projectKey,
+    registryPath: paths.registryPath,
+    projectionCachePath: paths.projectionCachePath,
+    sessionDirectory: paths.sessionDirectory,
+    headerPath: paths.headerPath,
     dataDirectory: paths.dataDirectory,
     configPath: paths.configPath,
     databasePath: paths.databasePath,

@@ -71,7 +71,7 @@ export function ConfigurationView({
       config: normalized,
     });
     if (result !== undefined) {
-      setNotice(result.changed ? "配置已保存并重新加载工作区。" : "配置内容没有变化。");
+      setNotice(result.changed ? "配置已保存并重新加载当前会话。" : "配置内容没有变化。");
     }
   };
 
@@ -87,10 +87,10 @@ export function ConfigurationView({
       <header className="configuration-heading">
         <div>
           <div className="configuration-title-row">
-            <h1>工作区配置</h1>
+            <h1>会话配置</h1>
             <span className="editable-pill">可编辑 · v{preview.config.version}</span>
           </div>
-          <p>整份配置会先校验，再原子保存并安全重载当前工作区。</p>
+          <p>整份配置会先校验，再原子保存并安全重载当前会话。</p>
         </div>
         <div className="configuration-heading-actions">
           <button
@@ -134,7 +134,7 @@ export function ConfigurationView({
 
         <section className="configuration-section">
           <div className="configuration-section-heading">
-            <div><span className="eyebrow">WORKSPACE</span><h2>工作区与存储</h2></div>
+            <div><span className="eyebrow">SESSION</span><h2>项目与会话存储</h2></div>
             <code>{normalized.roomId}</code>
           </div>
           <div className="configuration-room-editor">
@@ -153,11 +153,16 @@ export function ConfigurationView({
           </div>
           <dl className="configuration-paths">
             <div><dt>工作区 ID</dt><dd><code title={preview.workspaceId}>{preview.workspaceId}</code></dd></div>
+            <div><dt>会话 ID</dt><dd><code title={preview.sessionId}>{preview.sessionId}</code></dd></div>
             <div><dt>项目根目录</dt><dd><code title={preview.root}>{preview.root}</code></dd></div>
             <div><dt>Mesh 主目录</dt><dd><code title={preview.meshHome}>{preview.meshHome}</code></dd></div>
-            <div><dt>Mesh 数据目录</dt><dd><code title={preview.dataDirectory}>{preview.dataDirectory}</code></dd></div>
+            <div><dt>项目存储键</dt><dd><code title={preview.projectKey}>{preview.projectKey}</code></dd></div>
+            <div><dt>工作区索引</dt><dd><code title={preview.registryPath}>{preview.registryPath}</code></dd></div>
+            <div><dt>会话数据目录</dt><dd><code title={preview.sessionDirectory}>{preview.sessionDirectory}</code></dd></div>
+            <div><dt>会话头</dt><dd><code title={preview.headerPath}>{preview.headerPath}</code></dd></div>
             <div><dt>配置文件</dt><dd><code title={preview.configPath}>{preview.configPath}</code></dd></div>
             <div><dt>SQLite 数据库</dt><dd><code title={preview.databasePath}>{preview.databasePath}</code></dd></div>
+            <div><dt>会话投影缓存</dt><dd><code title={preview.projectionCachePath}>{preview.projectionCachePath}</code></dd></div>
           </dl>
         </section>
 
@@ -279,7 +284,7 @@ function configDraftError(config: WorkspaceConfig): string | undefined {
 function configurationSourceLabel(source: WorkspaceConfigPreview["source"]): string {
   const labels: Readonly<Record<WorkspaceConfigPreview["source"], string>> = {
     default: "内置默认配置（首次保存将创建文件）",
-    file: "工作区配置文件",
+    file: "会话配置文件",
     legacy: "待迁移的项目内配置",
     provided: "启动时提供的配置",
   };

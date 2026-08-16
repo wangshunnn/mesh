@@ -37,6 +37,8 @@ Initialize and inspect a workspace through the CLI:
 pnpm build
 pnpm mesh config preview
 pnpm mesh init
+pnpm mesh session list
+pnpm mesh session new
 pnpm mesh agents
 pnpm mesh message --to codex "Review the current room state"
 pnpm mesh timeline
@@ -51,9 +53,11 @@ pnpm desktop
 ```
 
 Both clients register the selected project directory in `MESH_HOME` (default
-`~/.mesh`) and open its UUID-owned `config.json` and `mesh.db` there. The project
-directory is not modified. The CLI is a headless entry point over the same
-runtime, not a separate collaboration model.
+`~/.mesh`). `storages/workspace.json` owns project identity and ordered session
+IDs; each Room session stores its strict header, `config.json`, and `mesh.db`
+below `sessions/<project-key>/<session-id>/`. The project directory is not
+modified. The CLI is a headless entry point over the same runtime, not a separate
+collaboration model.
 
 For a new-machine or new-Agent handoff, start with
 [`docs/project-status.md`](docs/project-status.md). The documentation reading

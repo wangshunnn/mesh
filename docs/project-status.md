@@ -1,10 +1,10 @@
 # Mesh project status
 
-Last updated: **2026-08-16**
+Last updated: **2026-08-17**
 
 Implementation branch: **`main`**
 
-Starting Git baseline for the current increment: **`4052d88`** (`feat(desktop): edit workspace configuration`)
+Starting Git baseline for the current increment: **`512a401`** (`refactor(workspace): centralize local state under MESH_HOME`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -37,13 +37,15 @@ validated form over typed IPC; successful saves close and rebuild the workspace,
 while conflicts preserve the live composition and can explicitly reload the
 newest disk config.
 
-Machine-local workspace ownership has been moved out of user projects. CLI and
-Desktop now share a `MESH_HOME` registry (default `~/.mesh`) that maps canonical
-project paths to stable UUIDs; each UUID owns its config and SQLite database
-under `MESH_HOME/workspaces/`. Opening a new workspace does not modify the
-project or require `.gitignore`. A former project-local `.mesh/` is validated
-and moved on the first mutating open, while simultaneous legacy and centralized
-state is rejected as an explicit conflict.
+Machine-local ownership is now session-first and remains outside user projects.
+CLI and Desktop share `MESH_HOME` (default `~/.mesh`):
+`storages/workspace.json` maps canonical project paths to stable workspace UUIDs
+and ordered session IDs, while each session owns a strict header, config, and
+SQLite Room under `sessions/<project-key>/<session-id>/`. A fail-soft projection
+cache lists titles and previews without opening every database. Opening a project
+does not modify it or require `.gitignore`. Both the former project-local
+`.mesh/` and the former centralized `workspaces/<workspace-id>/` layouts migrate
+on first mutating open; ambiguous multiple histories are rejected.
 
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
@@ -62,9 +64,9 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
 | Desktop product | Chinese local-room GUI with trajectory and editable config-v1 workspace/Agent settings; development build only |
-| CLI | Headless Room workflows plus revision-safe config preview, validation, and apply commands |
+| CLI | Headless Room workflows, session list/new/select, and revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
-| Persistence | Machine-local registry plus per-workspace config and SQLite under `MESH_HOME` |
+| Persistence | Machine-local workspace catalog plus isolated per-session config and SQLite under `MESH_HOME` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
 | Current phase | Phase 3A local product configuration and onboarding (desktop config-v1 editing) |
@@ -123,12 +125,17 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 
 ### Persistence and observability
 
-- `MESH_HOME/registry.json` stores stable workspace UUIDs, canonical project
-  paths, display names, and local recency metadata.
-- `MESH_HOME/workspaces/<workspace-id>/config.json` stores versioned workspace
-  and Agent configuration.
-- `MESH_HOME/workspaces/<workspace-id>/mesh.db` stores Room events, subject versions, idempotency results,
-  exclusive slots, participant cursors, and the diagnostic trace journal.
+- `MESH_HOME/storages/workspace.json` stores stable workspace UUIDs, canonical
+  project paths, display names, timestamps, and newest-created-first session IDs.
+- `MESH_HOME/sessions/<project-key>/<session-id>/header.json` strictly binds a
+  session to its workspace UUID, canonical working directory, and creation time.
+- The same session directory owns versioned `config.json` and `mesh.db`; the
+  database stores Room events, subject versions, idempotency results, exclusive
+  slots, participant cursors, resumable Agent metadata, and diagnostic traces.
+- `MESH_HOME/storages/session-projection-cache.json` is a derived, fail-soft
+  title/preview index. It is outside the Room ledger and may be rebuilt.
+- One workspace may own multiple isolated sessions; the current product maps one
+  session to one Room.
 - Presence and turn receipts are shared Room facts.
 - Candidate text, tool events, lifecycle timing, dirty detection, expired drafts,
   and reconciliation decisions live in the separate developer trace.
@@ -161,12 +168,13 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
   transport-neutral client contract; it contains no host implementation.
 - `@ai-mesh/workspace` resolves config and composes SQLite, registered adapter
   providers, and collaboration runtime. Its headless config API exposes
-  a side-effect-free centralized path preview, canonical version-1
-  parse/serialize, workspace registration, legacy migration, opaque revisions,
-  stale-write rejection, and atomic whole-document persistence.
+  a side-effect-free centralized path preview, workspace/session registration,
+  cold session listing, explicit new/select operations, both storage migrations,
+  canonical config-v1 parse/serialize, opaque revisions, stale-write rejection,
+  and atomic whole-document persistence.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
-  a side-effect-free effective-config preview, config validation and safe apply,
-  and a real-Agent demo.
+  session list/new/select, a side-effect-free effective-config preview, config
+  validation and safe apply, and a real-Agent demo.
 - `@ai-mesh/desktop` implements the application contract through one shared typed
   Electron IPC registration path and a React GUI. Its replaceable workspace host
   serializes requests across config saves, closes the old runtime, rebuilds from
@@ -251,13 +259,26 @@ opening and editing a workspace creates no project-local `.mesh/`; visual QA at
 1440×900 and 1040×680 found no clipping, horizontal overflow, or unusable path
 and configuration controls.
 
+The session-first persistence increment passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-17. Fifteen workspace tests cover strict
+session headers, stable collision-resistant project keys, ordered isolated
+sessions, cold title/preview projections, corrupt-cache fallback and lazy repair,
+explicit session reopen, both legacy storage migrations, and ambiguous-store
+rejection. Five CLI tests cover session list/new/select in addition to the config
+write protocol; all nineteen Desktop tests, sixteen collaboration tests, and six
+kernel evals pass. Electron smoke verified the new catalog/header/session paths,
+no project-local or obsolete centralized state, and configuration layouts at
+1440×900 and 1040×680. Both captured views were visually checked with no clipping,
+horizontal overflow, renderer diagnostics, or unusable controls.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
 
-1. **One local product Room.** A workspace config names one Room, and the product
-   UI/runtime surface one default `thread:general`. Multi-Room and multi-thread
-   navigation are not implemented.
+1. **One Room per session.** A session config names one Room, and the product
+   UI/runtime surface one default `thread:general`. Multiple sessions are
+   available through headless APIs and CLI, but Desktop has no session/workspace
+   chooser yet. Multi-Room and multi-thread navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live below `MESH_HOME`; they do not sync through Git. Moving a
    project directory still requires an explicit future rebind flow because the
@@ -294,9 +315,9 @@ git log --oneline -5
 git status --short
 ```
 
-If the exact Room history is required, transfer the selected workspace directory
-from `MESH_HOME/workspaces/` plus the necessary registry binding through a
-trusted channel after closing Mesh. It may contain machine-specific commands,
+If exact Room history is required, transfer the selected project/session
+directory from `MESH_HOME/sessions/` plus its workspace catalog binding through
+a trusted channel after closing Mesh. It may contain machine-specific commands,
 local paths, conversation history, and resumable vendor session identifiers.
 A fresh registration is safer when only development context—not runtime
 conversation state—must move. Never commit a legacy project-local `.mesh/`.

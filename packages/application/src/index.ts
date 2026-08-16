@@ -84,8 +84,16 @@ export type WorkspaceConfigSource = "provided" | "file" | "legacy" | "default";
 export interface WorkspaceConfigPreview {
   /** Stable local identity from the Mesh workspace registry. */
   readonly workspaceId: string;
+  /** Stable identity of the selected Room-backed session. */
+  readonly sessionId: string;
   readonly root: string;
   readonly meshHome: string;
+  readonly projectKey: string;
+  readonly registryPath: string;
+  readonly projectionCachePath: string;
+  readonly sessionDirectory: string;
+  readonly headerPath: string;
+  /** Compatibility alias for sessionDirectory. */
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;

@@ -21,6 +21,7 @@ test("desktop host reloads a changed config and keeps IPC operations on the new 
   });
 
   assert.equal(saved.changed, true);
+  assert.equal((await host.run((workspace) => workspace.sessionId)), preview.sessionId);
   assert.equal(await host.run((workspace) => workspace.snapshot().roomId), "room:desktop-reloaded");
   assert.deepEqual(updates, ["room:desktop-reloaded"]);
   unsubscribe();
@@ -54,6 +55,7 @@ test("desktop host explicitly reloads a newer config written by another client",
   const preview = await host.run((workspace) => workspace.configPreview());
   saveWorkspaceConfig({
     workspaceId: preview.workspaceId,
+    sessionId: preview.sessionId,
     root,
     meshHome,
     expectedRevision: preview.revision,

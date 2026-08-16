@@ -12,6 +12,8 @@ test("CLI previews config without creating workspace state", () => {
   const { root, meshHome } = cliFixture("mesh-cli-preview-");
   const preview = JSON.parse(run(["config", "preview", "--root", root], meshHome)) as {
     readonly workspaceId: string;
+    readonly sessionId: string;
+    readonly projectKey: string;
     readonly source: string;
     readonly revision: string | null;
     readonly configPath: string;
@@ -23,7 +25,7 @@ test("CLI previews config without creating workspace state", () => {
   assert.equal(preview.config.version, 1);
   assert.equal(
     preview.configPath,
-    join(meshHome, "workspaces", preview.workspaceId, "config.json"),
+    join(meshHome, "sessions", preview.projectKey, preview.sessionId, "config.json"),
   );
   assert.equal(existsSync(meshHome), false);
   assert.equal(existsSync(join(root, ".mesh")), false);
@@ -89,6 +91,43 @@ test("CLI persists a task across independent invocations", () => {
   assert.match(listed, /\[todo\] CLI task/);
   const status = run(["status", "--root", root], meshHome);
   assert.match(status, /Tasks: 1/);
+});
+
+test("CLI creates, lists, and explicitly reopens isolated sessions", () => {
+  const { root, meshHome } = cliFixture("mesh-cli-sessions-");
+  run(["message", "First session", "--root", root], meshHome);
+  const firstList = run(["session", "list", "--root", root], meshHome);
+  const firstId = firstList.match(/session-[0-9a-f-]{36}/)?.[0];
+  assert.ok(firstId);
+  assert.match(firstList, /First session \[1 messages, ok\]/);
+
+  const created = run(["session", "new", "--root", root], meshHome);
+  const secondId = created.match(/session-[0-9a-f-]{36}/)?.[0];
+  assert.ok(secondId);
+  assert.notEqual(secondId, firstId);
+  assert.match(created, new RegExp(`sessions/.+/${secondId}$`, "m"));
+
+  const sessions = run(["session", "list", "--root", root], meshHome);
+  assert.ok(sessions.indexOf(secondId) < sessions.indexOf(firstId));
+  assert.match(sessions, new RegExp(`${secondId} New Session \\[0 messages, ok\\]`));
+  assert.match(
+    run(["status", "--root", root, "--session", firstId], meshHome),
+    /Messages: 1/,
+  );
+  assert.throws(
+    () =>
+      run(
+        [
+          "status",
+          "--root",
+          root,
+          "--session",
+          "session-00000000-0000-4000-8000-000000000000",
+        ],
+        meshHome,
+      ),
+    /Unknown Mesh session/,
+  );
 });
 
 function run(args: readonly string[], meshHome: string): string {

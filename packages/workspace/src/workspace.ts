@@ -36,11 +36,19 @@ import {
   saveWorkspaceConfig,
   type WorkspaceConfigInput,
 } from "./config.js";
-import { prepareWorkspaceStorage } from "./storage.js";
+import {
+  createWorkspaceSessionId,
+  inspectWorkspaceStorage,
+  prepareWorkspaceStorage,
+  recordWorkspaceSessionProjection,
+  type WorkspaceStorageLocation,
+} from "./storage.js";
 
 export interface OpenWorkspaceOptions extends WorkspaceConfigInput {
   readonly persistDefaultConfig?: boolean;
   readonly adapterRegistry?: WorkspaceAdapterRegistry;
+  /** Create a new session instead of selecting the workspace's newest session. */
+  readonly createSession?: boolean;
 }
 
 export interface AgentProbeResult {
@@ -63,8 +71,14 @@ export interface StartAvailableAgentsResult {
 /** Local composition root shared by the headless CLI and Electron main process. */
 export class MeshWorkspace {
   readonly workspaceId: string;
+  readonly sessionId: string;
   readonly root: string;
   readonly meshHome: string;
+  readonly projectKey: string;
+  readonly registryPath: string;
+  readonly projectionCachePath: string;
+  readonly sessionDirectory: string;
+  readonly headerPath: string;
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;
@@ -74,13 +88,22 @@ export class MeshWorkspace {
   readonly runtime: CollaborationRuntime;
 
   readonly #store: SqliteStore;
+  readonly #storage: WorkspaceStorageLocation;
   readonly #adapters = new Map<ParticipantId, AgentAdapter>();
+  #projectionTimer: ReturnType<typeof setTimeout> | undefined;
+  #projectionUnsubscribe: Unsubscribe | undefined;
   #closed = false;
 
   private constructor(
     workspaceId: string,
+    sessionId: string,
     root: string,
     meshHome: string,
+    projectKey: string,
+    registryPath: string,
+    projectionCachePath: string,
+    sessionDirectory: string,
+    headerPath: string,
     dataDirectory: string,
     configPath: string,
     databasePath: string,
@@ -89,10 +112,17 @@ export class MeshWorkspace {
     config: WorkspaceConfig,
     store: SqliteStore,
     runtime: CollaborationRuntime,
+    storage: WorkspaceStorageLocation,
   ) {
     this.workspaceId = workspaceId;
+    this.sessionId = sessionId;
     this.root = root;
     this.meshHome = meshHome;
+    this.projectKey = projectKey;
+    this.registryPath = registryPath;
+    this.projectionCachePath = projectionCachePath;
+    this.sessionDirectory = sessionDirectory;
+    this.headerPath = headerPath;
     this.dataDirectory = dataDirectory;
     this.configPath = configPath;
     this.databasePath = databasePath;
@@ -100,29 +130,69 @@ export class MeshWorkspace {
     this.configRevision = configRevision;
     this.config = config;
     this.#store = store;
+    this.#storage = storage;
     this.runtime = runtime;
   }
 
   static open(options: OpenWorkspaceOptions): MeshWorkspace {
+    if (options.createSession === true && options.sessionId !== undefined) {
+      throw new Error("Choose either createSession or sessionId, not both.");
+    }
+    const selectedSession = options.createSession === true
+      ? createWorkspaceSessionId()
+      : options.sessionId;
+    const effectiveOptions = {
+      ...options,
+      ...(selectedSession === undefined ? {} : { sessionId: selectedSession }),
+    };
+    if (options.sessionId !== undefined) {
+      const selection = inspectWorkspaceStorage(effectiveOptions);
+      if (
+        selection.registered &&
+        !selection.sessionRegistered &&
+        selection.migrationSourceDirectory === undefined
+      ) {
+        throw new Error(
+          `Unknown Mesh session ${options.sessionId} for workspace ${selection.root}.`,
+        );
+      }
+    }
     // Validate provided or legacy config before registering or migrating local state.
-    const initialPreview = previewWorkspaceConfig(options);
+    const initialPreview = previewWorkspaceConfig(effectiveOptions);
     const storage = prepareWorkspaceStorage({
       root: initialPreview.root,
       meshHome: initialPreview.meshHome,
       workspaceId: initialPreview.workspaceId,
+      sessionId: initialPreview.sessionId,
     });
     const preview = previewWorkspaceConfig({
-      ...options,
+      ...effectiveOptions,
       root: storage.root,
       meshHome: storage.meshHome,
       workspaceId: storage.workspaceId,
+      sessionId: storage.sessionId,
     });
-    const { workspaceId, root, meshHome, dataDirectory, configPath, databasePath, config } = preview;
+    const {
+      workspaceId,
+      sessionId,
+      root,
+      meshHome,
+      projectKey,
+      registryPath,
+      projectionCachePath,
+      sessionDirectory,
+      headerPath,
+      dataDirectory,
+      configPath,
+      databasePath,
+      config,
+    } = preview;
     mkdirSync(dataDirectory, { recursive: true, mode: 0o700 });
     let configRevision = preview.revision;
     if (preview.source === "default" && options.persistDefaultConfig !== false) {
       configRevision = saveWorkspaceConfig({
         workspaceId,
+        sessionId,
         root,
         meshHome,
         config,
@@ -140,8 +210,14 @@ export class MeshWorkspace {
     });
     const workspace = new MeshWorkspace(
       workspaceId,
+      sessionId,
       root,
       meshHome,
+      projectKey,
+      registryPath,
+      projectionCachePath,
+      sessionDirectory,
+      headerPath,
       dataDirectory,
       configPath,
       databasePath,
@@ -150,6 +226,7 @@ export class MeshWorkspace {
       config,
       store,
       runtime,
+      storage,
     );
     const adapterRegistry = options.adapterRegistry ?? createBuiltinWorkspaceAdapterRegistry();
     try {
@@ -167,6 +244,8 @@ export class MeshWorkspace {
           ...(agent.systemPrompt === undefined ? {} : { systemPrompt: agent.systemPrompt }),
         });
       }
+      workspace.#projectionUnsubscribe = runtime.subscribe(() => workspace.#scheduleProjection());
+      workspace.#scheduleProjection();
       return workspace;
     } catch (error) {
       store.close();
@@ -183,8 +262,14 @@ export class MeshWorkspace {
     this.#assertOpen();
     return Object.freeze({
       workspaceId: this.workspaceId,
+      sessionId: this.sessionId,
       root: this.root,
       meshHome: this.meshHome,
+      projectKey: this.projectKey,
+      registryPath: this.registryPath,
+      projectionCachePath: this.projectionCachePath,
+      sessionDirectory: this.sessionDirectory,
+      headerPath: this.headerPath,
       dataDirectory: this.dataDirectory,
       configPath: this.configPath,
       databasePath: this.databasePath,
@@ -344,6 +429,13 @@ export class MeshWorkspace {
     if (this.#closed) {
       return;
     }
+    this.#projectionUnsubscribe?.();
+    this.#projectionUnsubscribe = undefined;
+    if (this.#projectionTimer !== undefined) {
+      clearTimeout(this.#projectionTimer);
+      this.#projectionTimer = undefined;
+    }
+    this.#checkpointProjection();
     try {
       await this.runtime.close();
     } finally {
@@ -365,6 +457,33 @@ export class MeshWorkspace {
       throw new Error("Mesh workspace is closed.");
     }
   }
+
+  #scheduleProjection(): void {
+    if (this.#closed || this.#projectionTimer !== undefined) return;
+    this.#projectionTimer = setTimeout(() => {
+      this.#projectionTimer = undefined;
+      if (!this.#closed) this.#checkpointProjection();
+    }, 50);
+    this.#projectionTimer.unref?.();
+  }
+
+  #checkpointProjection(): void {
+    try {
+      const snapshot = this.runtime.snapshot();
+      const firstHumanMessage = snapshot.messages.find((message) => message.from === "human");
+      const latestMessage = snapshot.messages.at(-1);
+      const latestTimestamp = snapshot.timeline.at(-1)?.committedAt ?? Date.now();
+      recordWorkspaceSessionProjection(this.#storage, {
+        title: compactProjectionText(firstHumanMessage?.text ?? "New Session", 80),
+        preview: latestMessage === undefined ? "" : compactProjectionText(latestMessage.text, 160),
+        updatedAt: new Date(latestTimestamp).toISOString(),
+        headSequence: snapshot.headSequence,
+        messageCount: snapshot.messages.length,
+      });
+    } catch {
+      // This cache is derived and fail-soft; the Room database remains canonical.
+    }
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -373,4 +492,10 @@ function errorMessage(error: unknown): string {
 
 function trimMentionPunctuation(value: string): string {
   return value.replace(/[.:]+$/g, "");
+}
+
+function compactProjectionText(value: string, maxLength: number): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact || "New Session";
+  return `${compact.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
 }

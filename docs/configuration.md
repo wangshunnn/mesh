@@ -15,21 +15,44 @@ Desktop resolve one machine-level home in this order:
 explicit API option > MESH_HOME > ~/.mesh
 ```
 
-The home owns an atomic `registry.json` plus one private data directory per
-registered workspace:
+The home separates a lightweight workspace catalog from private session data:
 
 ```text
 ~/.mesh/
-  registry.json
-  workspaces/<workspace-id>/
-    config.json
-    mesh.db
+  storages/
+    workspace.json
+    session-projection-cache.json
+  sessions/
+    <readable-project-key-with-hash>/
+      <session-id>/
+        header.json
+        config.json
+        mesh.db
 ```
 
-The registry maps a stable UUID to the canonical real path, display name, and
-timestamps of an existing project directory. Two projects with the same basename
-remain distinct. The project directory is only a working directory reference;
-opening it does not create project-local metadata or require a Git ignore rule.
+`storages/workspace.json` maps a stable workspace UUID to the canonical real
+project path, display name, timestamps, and an ordered list of opaque session
+IDs. New sessions are prepended without reordering older sessions when they are
+opened. The directory grouping key remains recognizable from the canonical path
+and ends in a truncated SHA-256 digest, so paths that normalize to the same slug
+cannot collide. Two projects with the same basename therefore remain distinct.
+
+The ownership model is `Workspace 1:N Session`, with `Session 1:1 Room` in the
+current product. Each session has a strict identity header and owns its config
+snapshot and canonical SQLite Room history. Mesh keeps SQLite instead of copying
+DSH's compressed JSONL representation because Room commit policies require
+transactions, subject-scoped compare-and-append, idempotency, exclusive slots,
+and durable participant cursors.
+
+`session-projection-cache.json` is a derived, fail-soft sidebar index containing
+only title, preview, timestamps, head sequence, and message count. It lets clients
+list sessions without opening every database. The first human message supplies a
+session title, and the latest message supplies its preview; a missing or corrupt
+cache falls back to safe defaults and is repaired by a later checkpoint. The
+Room database remains canonical.
+
+The project directory is only a working-directory reference. Opening it does
+not create project-local metadata or require a Git ignore rule.
 
 `config.json` remains the only persisted configuration document in config
 version 1. It is machine-local and is not an implicit collaboration artifact.
@@ -53,7 +76,7 @@ or leave duplicate Agent identities and handles.
 | Adapter command or executable path | Machine-local | Must be re-probed on each machine |
 | Permission policy | Machine-local trust | A future import defaults to `deny`; elevated trust never transfers silently |
 | Authentication, proxy, and environment | Machine-local | Mesh does not persist credentials in the config document |
-| SQLite path and resumable session IDs | Machine-local runtime state | Remain in the registered workspace directory below `MESH_HOME` and outside configuration exports |
+| SQLite path and resumable Agent session IDs | Machine-local runtime state | Remain in the selected session directory below `MESH_HOME/sessions/` and outside configuration exports |
 
 “Portable” means eligible for a deliberate future export. The registered
 `config.json` is still local, and config version 1 continues to store its
@@ -62,33 +85,37 @@ existing portable and local fields together.
 ## Legacy project-local migration
 
 An unregistered workspace containing the former `<project>/.mesh/config.json`
-or `mesh.db` layout is migrated on its first mutating open or save. Mesh first
-validates the legacy config, registers the canonical project path, and then moves
-the complete legacy directory to `MESH_HOME/workspaces/<workspace-id>`. A
-cross-device move stages a complete copy under `MESH_HOME`, publishes it by
-atomic rename, and removes the source only after publication.
+or `mesh.db` layout is migrated on its first mutating open or save. The short-lived
+centralized layout from baseline `512a401`, `MESH_HOME/workspaces/<workspace-id>/`,
+is migrated by the same protocol. Mesh first validates the legacy config,
+registers the canonical project path, chooses one session ID, and then moves the
+complete legacy directory to the selected
+`MESH_HOME/sessions/<project-key>/<session-id>/`. A cross-device move stages a
+complete copy under the project-key directory, publishes it by atomic rename,
+and removes the source only after publication.
 
 A side-effect-free preview reports `source: "legacy"` but does not migrate. If
-both legacy and centralized data exist, Mesh fails loudly instead of choosing or
-merging histories. A `MESH_HOME` that overlaps the legacy directory is also
-rejected before registration so migration can never move a directory into
-itself. Migration and registry locks serialize cooperating processes.
+more than one old or current location contains data, Mesh fails loudly instead
+of choosing or merging histories. A `MESH_HOME` that overlaps the legacy
+directory is also rejected before registration so migration can never move a
+directory into itself. Migration, catalog, projection, and config locks
+serialize cooperating processes.
 
 ## Read and write protocol
 
 `previewWorkspaceConfig` stays side-effect-free. It resolves a registered or
-provisional workspace UUID and the centralized target paths without creating
-`MESH_HOME`. A file-backed or legacy preview includes an opaque `revision`; a
-synthesized default or caller-provided preview uses a null revision because no
-file backs that value.
+provisional workspace UUID, selected or provisional session ID, and centralized
+target paths without creating `MESH_HOME`. A file-backed or legacy preview
+includes an opaque `revision`; a synthesized default or caller-provided preview
+uses a null revision because no file backs that value.
 
 `saveWorkspaceConfig` accepts a complete validated config plus the revision the
 caller observed. It:
 
 1. validates and canonicalizes the complete version-1 document before creating
    local state;
-2. binds the save to the previewed workspace UUID and atomically registers the
-   canonical project path;
+2. binds the save to the previewed workspace and session IDs and atomically
+   registers the canonical project path;
 3. completes any unambiguous legacy migration;
 4. serializes cooperating Mesh writers with a config-specific lock;
 5. rejects a stale revision instead of overwriting newer content;
@@ -109,11 +136,14 @@ closed, and subscriptions move to the newly composed workspace. A reload failure
 attempts to restore the previous persisted config before resuming.
 
 The CLI exposes the same contract as a round-trip workflow. `config preview`
-produces an edit document containing the workspace UUID, canonical project root,
-Mesh home, data directory, revision, and nested config. `config validate` accepts
-either that document or a raw config, while `config apply` requires the complete
-preview document and rejects a mismatched workspace, Mesh home, or stale
-revision. Users edit only the nested `config` value.
+produces an edit document containing the workspace UUID, session ID, canonical
+project root, Mesh home, data directory, revision, and nested config.
+`config validate` accepts either that document or a raw config, while
+`config apply` requires the complete preview document and rejects a mismatched
+workspace, session, Mesh home, or stale revision. Users edit only the nested
+`config` value. `session list` reads the catalog and derived projections without
+opening Room databases, `session new` creates an isolated session, and the global
+`--session` option explicitly reopens a known session.
 
 The Desktop form edits all fields already present in config version 1. It binds
 each save to the preview revision, reports conflicts without closing the active

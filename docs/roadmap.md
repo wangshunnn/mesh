@@ -1,10 +1,10 @@
 # Mesh implementation roadmap
 
-Last updated: **2026-08-16**
+Last updated: **2026-08-17**
 
-Starting Git baseline for the current increment: **`4052d88`**
+Starting Git baseline for the current increment: **`512a401`**
 
-Current position: **Phase 2A verified; Phase 3A headless configuration persistence is in progress**
+Current position: **Phase 2A verified; Phase 3A session-first local persistence is in progress**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -178,8 +178,16 @@ Proposed scope:
 - [ ] Open or create a workspace from the GUI
 - [x] Centralize machine-local workspace registration, config, and SQLite below
   `MESH_HOME` without writing metadata into user projects
+- [x] Separate project identity from Room sessions with a DSH-inspired
+  `storages/` catalog and `sessions/<project-key>/<session-id>/` layout
+- [x] Support multiple isolated sessions per workspace through headless
+  list/new/select APIs and matching CLI commands
+- [x] Maintain a fail-soft derived session title/preview cache so listing does
+  not cold-open every SQLite Room
 - [x] Migrate the former project-local `.mesh/` layout without merging ambiguous
   split histories
+- [x] Migrate the former centralized `workspaces/<workspace-id>/` layout into one
+  session without changing canonical Room history
 - [x] View and edit versioned Room and Agent configuration safely in Desktop,
   including revision conflicts and explicit disk reload
 - [x] Configure current config-v1 adapter command, system prompt,
@@ -201,7 +209,8 @@ Proposed scope:
   immutable code-level registry without opening external plugin loading
 - [x] Enforce the internal workspace dependency graph, TypeScript references,
   cycle freedom, and Desktop browser boundary in `pnpm verify`
-- [ ] Preserve a headless API for the same operations
+- [x] Preserve a headless API for workspace/session list, create, select,
+  preview, and safe config-write operations
 - [x] Add config-v1 round-trip tests before changing its schema
 - [ ] Add explicit migration fixtures before introducing a later config version
 
@@ -212,9 +221,10 @@ Exit gate: on a clean machine, a user can create a workspace, configure at least
 one available Agent, start it, and complete a Room conversation without manually
 editing JSON.
 
-Status: **in progress; centralized workspace ownership and headless, CLI, and
-desktop config-v1 writes are implemented, while GUI workspace selection,
-provider/model options, and onboarding diagnostics remain**.
+Status: **in progress; session-first workspace ownership plus headless and CLI
+session operations and desktop config-v1 writes are implemented, while GUI
+workspace/session selection, provider/model options, and onboarding diagnostics
+remain**.
 
 ### Phase 3B — Complete local collaboration workflows
 

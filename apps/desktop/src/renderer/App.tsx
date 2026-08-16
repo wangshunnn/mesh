@@ -302,11 +302,17 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
 
 const previewConfig: WorkspaceConfigPreview = Object.freeze({
   workspaceId: "7eea79bc-9cbf-4d29-950b-c97ab0f52bdf",
+  sessionId: "session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
   root: "/workspace/mesh",
   meshHome: "/Users/demo/.mesh",
-  dataDirectory: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf",
-  configPath: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf/config.json",
-  databasePath: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf/mesh.db",
+  projectKey: "--workspace-mesh--b5f31f1eb2c0",
+  registryPath: "/Users/demo/.mesh/storages/workspace.json",
+  projectionCachePath: "/Users/demo/.mesh/storages/session-projection-cache.json",
+  sessionDirectory: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
+  headerPath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/header.json",
+  dataDirectory: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
+  configPath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/config.json",
+  databasePath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/mesh.db",
   revision: null,
   source: "file",
   config: Object.freeze({

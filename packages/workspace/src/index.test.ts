@@ -26,11 +26,13 @@ import {
   WorkspaceStorageOverlapError,
   defaultWorkspaceConfig,
   listWorkspaceRegistrations,
+  listWorkspaceSessions,
   parseWorkspaceConfig,
   previewWorkspaceConfig,
   saveWorkspaceConfig,
   serializeWorkspaceConfig,
   validateWorkspaceConfig,
+  workspaceProjectKey,
 } from "./index.js";
 
 test("previewing a default workspace config has no filesystem side effects", () => {
@@ -42,17 +44,40 @@ test("previewing a default workspace config has no filesystem side effects", () 
   assert.equal(preview.config.version, 1);
   assert.equal(preview.config.agents.length, 2);
   assert.equal(preview.meshHome, meshHome);
-  assert.equal(preview.dataDirectory, join(meshHome, "workspaces", preview.workspaceId));
+  assert.match(preview.workspaceId, /^[0-9a-f-]{36}$/);
+  assert.match(preview.sessionId, /^session-[0-9a-f-]{36}$/);
+  assert.equal(preview.projectKey, workspaceProjectKey(root));
+  assert.equal(
+    preview.dataDirectory,
+    join(meshHome, "sessions", preview.projectKey, preview.sessionId),
+  );
+  assert.equal(preview.sessionDirectory, preview.dataDirectory);
+  assert.equal(preview.registryPath, join(meshHome, "storages", "workspace.json"));
+  assert.equal(
+    preview.projectionCachePath,
+    join(meshHome, "storages", "session-projection-cache.json"),
+  );
+  assert.equal(preview.headerPath, join(preview.sessionDirectory, "header.json"));
+  assert.equal(preview.configPath, join(preview.sessionDirectory, "config.json"));
+  assert.equal(preview.databasePath, join(preview.sessionDirectory, "mesh.db"));
   assert.equal(existsSync(meshHome), false);
   assert.equal(existsSync(join(root, ".mesh")), false);
 });
 
-test("opening a workspace registers centralized reusable configuration and SQLite state", async () => {
+test("opening a workspace registers a reusable session with a strict header and SQLite state", async () => {
   const { root, meshHome } = workspaceFixture("mesh-workspace-");
   const first = MeshWorkspace.open({ root, meshHome });
   assert.equal(existsSync(first.configPath), true);
   assert.equal(existsSync(first.databasePath), true);
-  assert.equal(first.dataDirectory.startsWith(join(meshHome, "workspaces")), true);
+  assert.equal(first.dataDirectory.startsWith(join(meshHome, "sessions")), true);
+  assert.deepEqual(JSON.parse(readFileSync(first.headerPath, "utf8")), {
+    version: 1,
+    id: first.sessionId,
+    workspaceId: first.workspaceId,
+    cwd: root,
+    createdAt: JSON.parse(readFileSync(first.headerPath, "utf8")).createdAt,
+  });
+  assert.equal(existsSync(first.registryPath), true);
   assert.equal(existsSync(join(root, ".mesh")), false);
   assert.equal(first.configPreview().source, "default");
   assert.match(first.configPreview().revision ?? "", /^sha256:[a-f0-9]{64}$/);
@@ -63,6 +88,7 @@ test("opening a workspace registers centralized reusable configuration and SQLit
 
   const reopened = MeshWorkspace.open({ root, meshHome });
   assert.equal(reopened.workspaceId, first.workspaceId);
+  assert.equal(reopened.sessionId, first.sessionId);
   assert.equal(reopened.configPreview().source, "file");
   assert.equal(reopened.configPreview().revision, firstRevision);
   assert.equal(reopened.snapshot().messages[0]?.text, "persistent");
@@ -103,6 +129,7 @@ test("config saves are atomic, revision checked, and no-op when already canonica
   const firstConfig = { ...initial.config, roomId: "room:first" };
   const first = saveWorkspaceConfig({
     workspaceId: initial.workspaceId,
+    sessionId: initial.sessionId,
     root,
     meshHome,
     config: firstConfig,
@@ -116,6 +143,7 @@ test("config saves are atomic, revision checked, and no-op when already canonica
 
   const unchanged = saveWorkspaceConfig({
     workspaceId: first.workspaceId,
+    sessionId: first.sessionId,
     root,
     meshHome,
     config: firstConfig,
@@ -126,6 +154,7 @@ test("config saves are atomic, revision checked, and no-op when already canonica
 
   const second = saveWorkspaceConfig({
     workspaceId: first.workspaceId,
+    sessionId: first.sessionId,
     root,
     meshHome,
     config: { ...firstConfig, roomId: "room:second" },
@@ -135,6 +164,7 @@ test("config saves are atomic, revision checked, and no-op when already canonica
     () =>
       saveWorkspaceConfig({
         workspaceId: first.workspaceId,
+        sessionId: first.sessionId,
         root,
         meshHome,
         config: { ...firstConfig, roomId: "room:stale" },
@@ -162,6 +192,7 @@ test("config save validates before creating state and serializes writers", () =>
       saveWorkspaceConfig({
         ...invalid,
         workspaceId: invalidPreview.workspaceId,
+        sessionId: invalidPreview.sessionId,
         config: { version: 2, roomId: "room:invalid", agents: [] } as never,
         expectedRevision: null,
       }),
@@ -176,6 +207,7 @@ test("config save validates before creating state and serializes writers", () =>
   saveWorkspaceConfig({
     ...locked,
     workspaceId: preview.workspaceId,
+    sessionId: preview.sessionId,
     config: preview.config,
     expectedRevision: preview.revision,
   });
@@ -185,6 +217,7 @@ test("config save validates before creating state and serializes writers", () =>
       saveWorkspaceConfig({
         ...locked,
         workspaceId: preview.workspaceId,
+        sessionId: preview.sessionId,
         config: preview.config,
         expectedRevision: previewWorkspaceConfig(locked).revision,
       }),
@@ -307,17 +340,89 @@ test("workspace registrations distinguish same-name directories and stay outside
   const first = MeshWorkspace.open({ root: firstRoot, meshHome });
   const second = MeshWorkspace.open({ root: secondRoot, meshHome });
   assert.notEqual(first.workspaceId, second.workspaceId);
+  assert.notEqual(first.projectKey, second.projectKey);
   assert.deepEqual(
     listWorkspaceRegistrations({ meshHome }).map(({ id, root, name }) => ({ id, root, name })),
     [
-      { id: first.workspaceId, root: canonicalFirstRoot, name: "project" },
       { id: second.workspaceId, root: canonicalSecondRoot, name: "project" },
+      { id: first.workspaceId, root: canonicalFirstRoot, name: "project" },
     ],
   );
   assert.equal(existsSync(join(firstRoot, ".mesh")), false);
   assert.equal(existsSync(join(secondRoot, ".mesh")), false);
   await first.close();
   await second.close();
+});
+
+test("one workspace owns ordered isolated sessions with cold sidebar projections", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-sessions-");
+  const first = MeshWorkspace.open({ root, meshHome });
+  first.postText("First session title", { idempotencyKey: "first-title" });
+  first.postText("First session latest message", { idempotencyKey: "first-latest" });
+  const firstId = first.sessionId;
+  await first.close();
+
+  const second = MeshWorkspace.open({ root, meshHome, createSession: true });
+  assert.equal(second.workspaceId, first.workspaceId);
+  assert.notEqual(second.sessionId, firstId);
+  assert.deepEqual(second.snapshot().messages, []);
+  second.postText("Second session title", { idempotencyKey: "second-title" });
+  const secondId = second.sessionId;
+  await second.close();
+
+  const sessions = listWorkspaceSessions({ root, meshHome });
+  assert.deepEqual(sessions.map(({ id }) => id), [secondId, firstId]);
+  assert.deepEqual(
+    sessions.map(({ status, title, preview, messageCount }) => ({
+      status,
+      title,
+      preview,
+      messageCount,
+    })),
+    [
+      {
+        status: "ok",
+        title: "Second session title",
+        preview: "Second session title",
+        messageCount: 1,
+      },
+      {
+        status: "ok",
+        title: "First session title",
+        preview: "First session latest message",
+        messageCount: 2,
+      },
+    ],
+  );
+
+  const reopenedFirst = MeshWorkspace.open({ root, meshHome, sessionId: firstId });
+  assert.deepEqual(
+    reopenedFirst.snapshot().messages.map(({ text }) => text),
+    ["First session title", "First session latest message"],
+  );
+  await reopenedFirst.close();
+});
+
+test("session listing tolerates and lazily repairs a corrupt derived projection cache", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-projection-repair-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  workspace.postText("Recover this session title", { idempotencyKey: "projection-title" });
+  const projectionCachePath = workspace.projectionCachePath;
+  const sessionId = workspace.sessionId;
+  await workspace.close();
+
+  writeFileSync(projectionCachePath, "{not-json\n", "utf8");
+  const fallback = listWorkspaceSessions({ root, meshHome });
+  assert.equal(fallback[0]?.id, sessionId);
+  assert.equal(fallback[0]?.status, "ok");
+  assert.equal(fallback[0]?.title, "New Session");
+  assert.equal(fallback[0]?.messageCount, 0);
+
+  const reopened = MeshWorkspace.open({ root, meshHome, sessionId });
+  await reopened.close();
+  const repaired = listWorkspaceSessions({ root, meshHome });
+  assert.equal(repaired[0]?.title, "Recover this session title");
+  assert.equal(repaired[0]?.messageCount, 1);
 });
 
 test("opening safely migrates legacy project-local config and Room history", async () => {
@@ -356,6 +461,66 @@ test("opening safely migrates legacy project-local config and Room history", asy
   assert.equal(existsSync(legacyDirectory), false);
   assert.equal(existsSync(workspace.configPath), true);
   assert.equal(existsSync(workspace.databasePath), true);
+  await workspace.close();
+});
+
+test("opening safely migrates the former centralized workspace directory", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-central-migration-");
+  const initial = previewWorkspaceConfig({ root, meshHome });
+  const createdAt = "2026-08-16T08:00:00.000Z";
+  mkdirSync(meshHome, { recursive: true });
+  writeFileSync(
+    join(meshHome, "registry.json"),
+    `${JSON.stringify({
+      version: 1,
+      workspaces: [{
+        id: initial.workspaceId,
+        root,
+        name: "project",
+        createdAt,
+        lastOpenedAt: createdAt,
+      }],
+    }, undefined, 2)}\n`,
+    "utf8",
+  );
+  const legacyDirectory = join(meshHome, "workspaces", initial.workspaceId);
+  mkdirSync(legacyDirectory, { recursive: true });
+  writeFileSync(
+    join(legacyDirectory, "config.json"),
+    serializeWorkspaceConfig({ ...defaultWorkspaceConfig(), roomId: "room:central-legacy" }),
+    "utf8",
+  );
+  const legacyStore = new SqliteStore(join(legacyDirectory, "mesh.db"));
+  legacyStore.room("room:central-legacy").commit({
+    id: "central-legacy-message",
+    idempotencyKey: "central-legacy-message",
+    roomId: "room:central-legacy",
+    actorId: "human",
+    subject: { kind: "thread", id: "general" },
+    action: CoreAction.threadMessageAppend,
+    payload: {
+      kind: "message",
+      text: "preserved from centralized storage",
+      attention: "team",
+      respondingTo: [],
+    },
+  });
+  legacyStore.close();
+
+  const preview = previewWorkspaceConfig({ root, meshHome });
+  assert.equal(preview.workspaceId, initial.workspaceId);
+  assert.equal(preview.source, "legacy");
+  const workspace = MeshWorkspace.open({
+    root,
+    meshHome,
+    workspaceId: preview.workspaceId,
+    sessionId: preview.sessionId,
+  });
+  assert.equal(workspace.snapshot().messages[0]?.text, "preserved from centralized storage");
+  assert.equal(existsSync(legacyDirectory), false);
+  assert.equal(existsSync(join(meshHome, "registry.json")), false);
+  assert.equal(existsSync(join(meshHome, "storages", "workspace.json")), true);
+  assert.equal(existsSync(workspace.headerPath), true);
   await workspace.close();
 });
 

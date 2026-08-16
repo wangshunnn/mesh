@@ -140,18 +140,25 @@ the sandboxed renderer receives only the application projection and never reads
 configuration files, the workspace registry, or workspace paths directly.
 
 Machine-local state is owned by one shared `MESH_HOME` (default `~/.mesh`), not
-by the user's project. An atomic registry maps canonical project paths to stable
-workspace UUIDs, and each UUID owns one private configuration/SQLite directory.
+by the user's project. `storages/workspace.json` maps canonical project paths to
+stable workspace UUIDs and ordered session IDs. A workspace may own multiple
+sessions; each session owns one strict identity header, config snapshot, and
+SQLite-backed canonical Room below `sessions/<project-key>/<session-id>/`.
+The readable project key includes a path digest to prevent normalization
+collisions. A derived fail-soft projection cache supports cold session listing
+without replacing or entering the Room ledger.
+
 The project root remains the Agent working directory but contains no implicit
 Mesh marker. This keeps CLI and GUI on one identity and persistence model while
-avoiding repository pollution. Legacy project-local `.mesh/` state is moved only
-after validation; if legacy and centralized stores both exist, composition fails
-loudly rather than selecting or merging canonical Room histories.
+avoiding repository pollution. Legacy project-local `.mesh/` and the former
+centralized `workspaces/<workspace-id>/` layout are moved only after validation;
+if more than one storage location could own the Room, composition fails loudly
+rather than selecting or merging canonical histories.
 
 Phase 3A configuration writes use one complete validated document, an opaque
-revision and stable workspace UUID from the caller's preview, and an atomic
-same-directory replacement. Stale revisions or mismatched registry bindings are
-rejected. An open workspace remains an immutable composition snapshot, so a
+revision and stable workspace/session IDs from the caller's preview, and an
+atomic same-directory replacement. Stale revisions or mismatched catalog
+bindings are rejected. An open workspace remains an immutable composition snapshot, so a
 changed save requires close and reopen rather than mutating live Room or Agent
 resources in place. Credentials are not part of workspace config, and elevated
 permission policy is machine-local trust that must not transfer silently. The

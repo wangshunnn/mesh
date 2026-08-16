@@ -146,10 +146,14 @@ async function runSmoke(): Promise<void> {
     }
     const storage = await workspaceHost.run((activeWorkspace) => activeWorkspace.configPreview());
     if (
-      !storage.dataDirectory.startsWith(join(meshHome, "workspaces")) ||
+      !storage.dataDirectory.startsWith(join(meshHome, "sessions", storage.projectKey)) ||
+      storage.dataDirectory !== storage.sessionDirectory ||
+      !existsSync(storage.headerPath) ||
+      !existsSync(storage.registryPath) ||
+      existsSync(join(meshHome, "workspaces")) ||
       existsSync(join(root, ".mesh"))
     ) {
-      throw new Error(`Workspace data was not centralized: ${JSON.stringify(storage)}`);
+      throw new Error(`Workspace session data was not centralized: ${JSON.stringify(storage)}`);
     }
     const layouts = [];
     for (const size of [{ width: 1440, height: 900 }, { width: 1040, height: 680 }]) {

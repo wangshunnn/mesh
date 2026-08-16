@@ -7,6 +7,7 @@ import type { MessageAttention, TaskStatus } from "@ai-mesh/protocol";
 import {
   MeshWorkspace,
   inspectWorkspaceStorage,
+  listWorkspaceSessions,
   previewWorkspaceConfig,
   resolveMeshHome,
   resolveWorkspaceRoot,
@@ -17,6 +18,7 @@ import {
 const argv = process.argv.slice(2);
 const command = argv.shift() ?? "help";
 const root = resolve(option(argv, "--root") ?? process.cwd());
+const sessionId = option(argv, "--session");
 
 if (command === "help" || command === "--help" || command === "-h") {
   printHelp();
@@ -26,9 +28,28 @@ if (command === "help" || command === "--help" || command === "-h") {
 let workspace: MeshWorkspace | undefined;
 try {
   if (command === "config") {
-    configCommand(root, argv);
+    configCommand(root, argv, sessionId);
+  } else if (command === "session") {
+    const action = argv.shift() ?? "list";
+    if (action === "list") {
+      const sessions = listWorkspaceSessions({ root });
+      if (sessions.length === 0) console.log("No Mesh sessions.");
+      for (const session of sessions) {
+        console.log(
+          `${session.archived ? "○" : "●"} ${session.id} ${session.title} ` +
+            `[${String(session.messageCount)} messages, ${session.status}]`,
+        );
+      }
+    } else if (action === "new") {
+      if (sessionId !== undefined) throw new Error("mesh session new does not accept --session.");
+      workspace = MeshWorkspace.open({ root, createSession: true });
+      console.log(`Created ${workspace.sessionId}`);
+      console.log(`Session: ${workspace.sessionDirectory}`);
+    } else {
+      throw new Error(`Unknown session action ${action}. Run mesh help.`);
+    }
   } else {
-    workspace = MeshWorkspace.open({ root });
+    workspace = MeshWorkspace.open({ root, ...(sessionId === undefined ? {} : { sessionId }) });
     switch (command) {
       case "init":
         console.log(`Initialized Mesh in ${workspace.dataDirectory}`);
@@ -64,10 +85,17 @@ try {
   await workspace?.close();
 }
 
-function configCommand(workspaceRoot: string, args: string[]): void {
+function configCommand(
+  workspaceRoot: string,
+  args: string[],
+  sessionId: string | undefined,
+): void {
   const action = args.shift() ?? "preview";
   if (action === "preview") {
-    console.log(JSON.stringify(previewWorkspaceConfig({ root: workspaceRoot }), undefined, 2));
+    console.log(JSON.stringify(previewWorkspaceConfig({
+      root: workspaceRoot,
+      ...(sessionId === undefined ? {} : { sessionId }),
+    }), undefined, 2));
     return;
   }
   if (action !== "validate" && action !== "apply") {
@@ -84,11 +112,12 @@ function configCommand(workspaceRoot: string, args: string[]): void {
     );
     return;
   }
-  const edit = configEditDocument(document, inputPath, workspaceRoot);
+  const edit = configEditDocument(document, inputPath, workspaceRoot, sessionId);
   console.log(
     JSON.stringify(
       saveWorkspaceConfig({
         workspaceId: edit.workspaceId,
+        sessionId: edit.sessionId,
         root: workspaceRoot,
         meshHome: edit.meshHome,
         config: edit.config,
@@ -115,8 +144,10 @@ function configEditDocument(
   value: unknown,
   path: string,
   workspaceRoot: string,
+  requestedSessionId: string | undefined,
 ): {
   readonly workspaceId: string;
+  readonly sessionId: string;
   readonly meshHome: string;
   readonly revision: string | null;
   readonly config: ReturnType<typeof validateWorkspaceConfig>;
@@ -132,6 +163,7 @@ function configEditDocument(
   }
   if (
     typeof value.workspaceId !== "string" ||
+    typeof value.sessionId !== "string" ||
     typeof value.meshHome !== "string" ||
     resolveMeshHome(value.meshHome) !== resolveMeshHome()
   ) {
@@ -141,7 +173,18 @@ function configEditDocument(
     root: workspaceRoot,
     meshHome: value.meshHome,
     workspaceId: value.workspaceId,
+    sessionId: value.sessionId,
   });
+  if (requestedSessionId !== undefined && value.sessionId !== requestedSessionId) {
+    throw new Error(`Config edit document ${path} belongs to a different session.`);
+  }
+  if (
+    expectedStorage.registered &&
+    !expectedStorage.sessionRegistered &&
+    expectedStorage.migrationSourceDirectory === undefined
+  ) {
+    throw new Error(`Config edit document ${path} refers to an unknown session.`);
+  }
   if (
     typeof value.dataDirectory !== "string" ||
     resolve(value.dataDirectory) !== expectedStorage.dataDirectory
@@ -153,6 +196,7 @@ function configEditDocument(
   }
   return Object.freeze({
     workspaceId: value.workspaceId,
+    sessionId: value.sessionId,
     meshHome: expectedStorage.meshHome,
     revision: value.revision,
     config: validateWorkspaceConfig(value.config),
@@ -359,9 +403,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function printHelp(): void {
   console.log(`Mesh CLI
 
-Usage: mesh <command> [--root <workspace>]
+Usage: mesh <command> [--root <workspace>] [--session <session-id>]
 
-  init                              register this directory and create local Mesh state
+  init                              register this directory and create/open local session state
+  session list                      list this project's sessions without opening their databases
+  session new                       create a new isolated session for this project
   config preview                    preview effective config without writing files
   config validate <file>            validate a config or preview edit document
   config apply <preview-file>       safely apply an edited config preview
