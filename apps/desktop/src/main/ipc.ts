@@ -1,13 +1,15 @@
 import { ipcMain } from "electron";
 
 import type { MessageAttention } from "@ai-mesh/protocol";
-import type { MeshWorkspace } from "@ai-mesh/workspace";
 
 import { desktopChannels, type DesktopApi } from "../shared/api.js";
+import type { DesktopWorkspaceHost } from "./workspace-host.js";
 
 const requestChannels = Object.freeze([
   desktopChannels.snapshot,
   desktopChannels.configPreview,
+  desktopChannels.saveConfig,
+  desktopChannels.reloadConfig,
   desktopChannels.postMessage,
   desktopChannels.createTask,
   desktopChannels.claimTask,
@@ -18,12 +20,19 @@ const requestChannels = Object.freeze([
 ]);
 
 /** Register the Electron transport for the browser-safe application contract. */
-export function registerDesktopIpc(activeWorkspace: MeshWorkspace): () => void {
-  ipcMain.handle(desktopChannels.snapshot, () => activeWorkspace.snapshot());
-  ipcMain.handle(desktopChannels.configPreview, () => activeWorkspace.configPreview());
+export function registerDesktopIpc(host: DesktopWorkspaceHost): () => void {
+  ipcMain.handle(desktopChannels.snapshot, () => host.run((workspace) => workspace.snapshot()));
+  ipcMain.handle(desktopChannels.configPreview, () =>
+    host.run((workspace) => workspace.configPreview()),
+  );
+  ipcMain.handle(
+    desktopChannels.saveConfig,
+    (_event, input: Parameters<DesktopApi["saveConfig"]>[0]) => host.saveConfig(input),
+  );
+  ipcMain.handle(desktopChannels.reloadConfig, () => host.reloadConfig());
   ipcMain.handle(
     desktopChannels.postMessage,
-    (_event, input: Parameters<DesktopApi["postMessage"]>[0]) => {
+    (_event, input: Parameters<DesktopApi["postMessage"]>[0]) => host.run((activeWorkspace) => {
       const attention: MessageAttention | undefined =
         input.to === undefined
           ? undefined
@@ -34,37 +43,37 @@ export function registerDesktopIpc(activeWorkspace: MeshWorkspace): () => void {
         ...(attention === undefined ? {} : { attention }),
       });
       return activeWorkspace.snapshot();
-    },
+    }),
   );
   ipcMain.handle(
     desktopChannels.createTask,
-    (_event, input: Parameters<DesktopApi["createTask"]>[0]) => {
+    (_event, input: Parameters<DesktopApi["createTask"]>[0]) => host.run((activeWorkspace) => {
       activeWorkspace.createTask(input);
       return activeWorkspace.snapshot();
-    },
+    }),
   );
   ipcMain.handle(
     desktopChannels.claimTask,
-    (_event, input: Parameters<DesktopApi["claimTask"]>[0]) => {
+    (_event, input: Parameters<DesktopApi["claimTask"]>[0]) => host.run((activeWorkspace) => {
       const result = activeWorkspace.claimTask(
         input.taskId,
         activeWorkspace.resolveParticipant(input.ownerId),
       );
       assertCommitted(result, "claim task");
       return activeWorkspace.snapshot();
-    },
+    }),
   );
   ipcMain.handle(
     desktopChannels.updateTask,
-    (_event, input: Parameters<DesktopApi["updateTask"]>[0]) => {
+    (_event, input: Parameters<DesktopApi["updateTask"]>[0]) => host.run((activeWorkspace) => {
       const result = activeWorkspace.updateTask(input);
       assertCommitted(result, "update task");
       return activeWorkspace.snapshot();
-    },
+    }),
   );
   ipcMain.handle(
     desktopChannels.agentAction,
-    async (_event, input: Parameters<DesktopApi["agentAction"]>[0]) => {
+    (_event, input: Parameters<DesktopApi["agentAction"]>[0]) => host.run(async (activeWorkspace) => {
       switch (input.action) {
         case "start":
           await activeWorkspace.startAgent(input.agentId);
@@ -80,21 +89,25 @@ export function registerDesktopIpc(activeWorkspace: MeshWorkspace): () => void {
           break;
       }
       return activeWorkspace.snapshot();
-    },
+    }),
   );
-  ipcMain.handle(desktopChannels.probeAgents, async () => {
-    const probes = await activeWorkspace.probeAgents();
-    return probes.map((probe) => ({
-      id: probe.id,
-      available: probe.availability.available,
-      ...(probe.availability.version === undefined ? {} : { version: probe.availability.version }),
-      ...(probe.availability.reason === undefined ? {} : { reason: probe.availability.reason }),
-    }));
-  });
-  ipcMain.handle(desktopChannels.startAvailableAgents, async () => {
-    await activeWorkspace.startAvailableAgents();
-    return activeWorkspace.snapshot();
-  });
+  ipcMain.handle(desktopChannels.probeAgents, () =>
+    host.run(async (activeWorkspace) => {
+      const probes = await activeWorkspace.probeAgents();
+      return probes.map((probe) => ({
+        id: probe.id,
+        available: probe.availability.available,
+        ...(probe.availability.version === undefined ? {} : { version: probe.availability.version }),
+        ...(probe.availability.reason === undefined ? {} : { reason: probe.availability.reason }),
+      }));
+    }),
+  );
+  ipcMain.handle(desktopChannels.startAvailableAgents, () =>
+    host.run(async (activeWorkspace) => {
+      await activeWorkspace.startAvailableAgents();
+      return activeWorkspace.snapshot();
+    }),
+  );
 
   let registered = true;
   return () => {

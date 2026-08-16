@@ -2,12 +2,11 @@ import { join, resolve } from "node:path";
 
 import { BrowserWindow, app } from "electron";
 
-import { MeshWorkspace } from "@ai-mesh/workspace";
-
 import { desktopChannels } from "../shared/api.js";
 import { registerDesktopIpc } from "./ipc.js";
+import { DesktopWorkspaceHost } from "./workspace-host.js";
 
-let workspace: MeshWorkspace | undefined;
+let workspaceHost: DesktopWorkspaceHost | undefined;
 let mainWindow: BrowserWindow | undefined;
 let unsubscribeWorkspace: (() => void) | undefined;
 let unregisterIpc: (() => void) | undefined;
@@ -17,9 +16,9 @@ const workspaceRoot = resolve(process.env.MESH_WORKSPACE_ROOT ?? process.cwd());
 void app
   .whenReady()
   .then(() => {
-    workspace = MeshWorkspace.open({ root: workspaceRoot });
-    unregisterIpc = registerDesktopIpc(workspace);
-    unsubscribeWorkspace = workspace.subscribe((snapshot) => {
+    workspaceHost = DesktopWorkspaceHost.open(workspaceRoot);
+    unregisterIpc = registerDesktopIpc(workspaceHost);
+    unsubscribeWorkspace = workspaceHost.subscribe((snapshot) => {
       mainWindow?.webContents.send(desktopChannels.snapshotUpdated, snapshot);
     });
     mainWindow = createWindow();
@@ -42,12 +41,12 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
-  if (workspace === undefined) {
+  if (workspaceHost === undefined) {
     return;
   }
   event.preventDefault();
-  const closing = workspace;
-  workspace = undefined;
+  const closing = workspaceHost;
+  workspaceHost = undefined;
   unsubscribeWorkspace?.();
   unsubscribeWorkspace = undefined;
   unregisterIpc?.();

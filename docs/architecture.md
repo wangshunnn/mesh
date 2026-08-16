@@ -148,6 +148,13 @@ and elevated permission policy is machine-local trust that must not transfer
 silently. The complete ownership and evolution rules are recorded in
 [`configuration.md`](configuration.md).
 
+Electron implements close-and-reopen through a replaceable workspace host below
+typed IPC. Desktop requests are serialized around that transition, runtime
+subscriptions move to the replacement, and the new snapshot is broadcast only
+after composition succeeds. A stale save leaves the live workspace untouched;
+an explicit reload validates the disk document before closing the known-good
+composition.
+
 The workspace adapter registry is an immutable code-level injection seam. It
 removes provider construction from general workspace lifecycle code and permits
 deterministic substitution in tests, but deliberately does not load external

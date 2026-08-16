@@ -4,7 +4,7 @@ Last updated: **2026-08-16**
 
 Implementation branch: **`main`**
 
-Starting Git baseline for the current increment: **`6c73acd`** (`refactor(architecture): enforce package boundaries`)
+Starting Git baseline for the current increment: **`d8c1ea6`** (`feat(config): add revision-safe workspace persistence`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -19,9 +19,10 @@ generation.
 
 The repository is currently a **verified technical MVP**, not yet a distributable
 product MVP. The kernel, local persistence, real-adapter vertical slice, Chinese
-Electron GUI, developer trace, and bounded candidate reconciliation exist. Clean
-machine onboarding, GUI configuration, packaged releases, a stable public SDK,
-and remote multi-machine Rooms do not yet exist.
+Electron GUI, developer trace, bounded candidate reconciliation, and safe local
+config-v1 editing exist. Clean-machine workspace selection, provider/model
+configuration, packaged releases, a stable public SDK, and remote multi-machine
+Rooms do not yet exist.
 
 Phase 3A now has an approved configuration model without changing configuration
 version 1. The headless API can parse and canonically serialize all current
@@ -29,10 +30,12 @@ fields, preview an opaque file revision without creating `.mesh/` state, and
 persist one complete validated document through a revision-checked, serialized
 atomic replacement. Default workspace creation uses the same safe persistence
 path. A changed save deliberately requires the caller to close and reopen the
-immutable workspace composition. The typed Electron IPC and desktop view remain
-read-only. The CLI exposes a workspace-bound `config preview` → `validate` →
-`apply` edit round trip with the same revision protection; GUI editing is the
-next product slice.
+immutable workspace composition. The CLI exposes a workspace-bound
+`config preview` → `validate` → `apply` edit round trip with the same revision
+protection. Desktop now exposes the current config-v1 Room and Agent fields as a
+validated form over typed IPC; successful saves close and rebuild the workspace,
+while conflicts preserve the live composition and can explicitly reload the
+newest disk config.
 
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
@@ -50,13 +53,13 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
-| Desktop product | Chinese local-room GUI with trajectory and read-only configuration views; development build only |
+| Desktop product | Chinese local-room GUI with trajectory and editable config-v1 workspace/Agent settings; development build only |
 | CLI | Headless Room workflows plus revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Local SQLite under `.mesh/` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
-| Current phase | Phase 3A local product configuration and onboarding (headless safe-write boundary) |
+| Current phase | Phase 3A local product configuration and onboarding (desktop config-v1 editing) |
 | Phase 2B cancellation | Gated on trace evidence; not the default next step |
 
 ## Implemented behavior
@@ -153,8 +156,10 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
   a side-effect-free effective-config preview, config validation and safe apply,
   and a real-Agent demo.
 - `@ai-mesh/desktop` implements the application contract through one shared typed
-  Electron IPC registration path and a React GUI, including a read-only
-  projection of the effective workspace config.
+  Electron IPC registration path and a React GUI. Its replaceable workspace host
+  serializes requests across config saves, closes the old runtime, rebuilds from
+  the saved document, and publishes the new snapshot. The configuration form
+  edits every current config-v1 Room/Agent field and surfaces stale-write reload.
 - The Electron renderer is sandboxed with context isolation and no Node
   integration.
 
@@ -215,6 +220,15 @@ an edited preview, persisted updates, stale-revision rejection, and rejection of
 an edit document bound to another workspace. The root `pnpm mesh --help` smoke
 now exposes `config preview`, `config validate`, and `config apply`.
 
+The Desktop config-v1 editing increment passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-16. Nineteen desktop tests include
+three replaceable-host cases for successful save/reload, stale-write safety, and
+explicit adoption of a newer external config. The Electron smoke edits an Agent
+name through the rendered form, saves it across typed IPC, verifies the rebuilt
+workspace and non-null revision, and then checks 1440×900 and 1040×680 layouts
+without renderer warnings, errors, or horizontal overflow. Captured screenshots
+at both sizes were visually checked for usable controls, cards, paths, and scroll.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
@@ -224,9 +238,10 @@ These are current boundaries, not regressions:
    navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live under ignored `.mesh/`; they do not sync through Git.
-3. **No GUI configuration editing.** Headless and CLI safe writes now exist, but
-   the desktop configuration view remains read-only. Provider/model adapter
-   semantics and GUI editing are not implemented yet.
+3. **Incomplete onboarding configuration.** Desktop can edit existing config-v1
+   Room and Agent fields, but it cannot choose/create another workspace, add or
+   remove Agent entries, or select provider/model options. Authentication and
+   proxy failures still lack dedicated product guidance.
 4. **Two production adapter kinds.** Workspace validation and its immutable
    code-level provider registry currently accept only `opencode-acp` and
    `codex-native`; there is no dynamic or external plugin loading contract.
@@ -358,8 +373,7 @@ Do not silently decide these while implementing an unrelated task:
 - whether multiple threads belong inside one Room before multi-Room support;
 - the stable public split between Room SDK, collaboration runtime, adapters, and
   CLI packages;
-- how future provider/model selection maps onto each adapter contract and how the
-  approved configuration fields should be presented in the GUI;
+- how future provider/model selection maps onto each adapter contract;
 - installer platforms, signing, release automation, and update policy;
 - the trust, identity, authorization, and synchronization model for remote Rooms.
 

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/application";
+import type {
+  RoomSnapshot,
+  WorkspaceConfigPreview,
+  WorkspaceConfigSaveInput,
+  WorkspaceConfigWriteResult,
+} from "@ai-mesh/application";
 import {
   CoreAction,
   type RoomEvent,
@@ -10,6 +15,7 @@ import {
 } from "@ai-mesh/protocol";
 
 import type { DesktopAgentProbe } from "../shared/api.js";
+import { ConfigurationView } from "./ConfigurationView.js";
 import { TrajectoryView } from "./TrajectoryView.js";
 
 const emptySnapshot: RoomSnapshot = Object.freeze({
@@ -394,6 +400,57 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const saveConfiguration = async (
+    input: WorkspaceConfigSaveInput,
+  ): Promise<WorkspaceConfigWriteResult | undefined> => {
+    setBusy("save-config");
+    setError(undefined);
+    try {
+      if (window.mesh === undefined) {
+        throw new Error("预览模式不能保存配置，请打开 Electron 应用。");
+      }
+      const result = await window.mesh.saveConfig(input);
+      const [nextSnapshot, nextProbes, nextPreview] = await Promise.all([
+        window.mesh.snapshot(),
+        window.mesh.probeAgents(),
+        window.mesh.configPreview(),
+      ]);
+      setSnapshot(nextSnapshot);
+      setProbes(nextProbes);
+      setConfigPreview(nextPreview);
+      return result;
+    } catch (caught) {
+      setError(configurationErrorMessage(caught));
+      return undefined;
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const reloadConfiguration = async (): Promise<boolean> => {
+    setBusy("reload-config");
+    setError(undefined);
+    try {
+      if (window.mesh === undefined) {
+        throw new Error("预览模式不能重新加载配置，请打开 Electron 应用。");
+      }
+      const nextPreview = await window.mesh.reloadConfig();
+      const [nextSnapshot, nextProbes] = await Promise.all([
+        window.mesh.snapshot(),
+        window.mesh.probeAgents(),
+      ]);
+      setConfigPreview(nextPreview);
+      setSnapshot(nextSnapshot);
+      setProbes(nextProbes);
+      return true;
+    } catch (caught) {
+      setError(configurationErrorMessage(caught));
+      return false;
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
   return (
     <main className="shell">
       <Header snapshot={snapshot} busy={busy} invoke={invoke} view={view} onViewChange={setView} />
@@ -434,7 +491,13 @@ export function App(): React.JSX.Element {
         ) : view === "trajectory" ? (
           <TrajectoryView snapshot={snapshot} />
         ) : (
-          <ConfigurationView preview={configPreview} probes={probes} />
+          <ConfigurationView
+            preview={configPreview}
+            probes={probes}
+            busy={busy}
+            onSave={saveConfiguration}
+            onReload={reloadConfiguration}
+          />
         )}
       </div>
     </main>
@@ -491,101 +554,6 @@ function Header({ snapshot, busy, invoke, view, onViewChange }: HeaderProps): Re
         </button>
       </div>
     </header>
-  );
-}
-
-function ConfigurationView({
-  preview,
-  probes,
-}: {
-  readonly preview: WorkspaceConfigPreview | undefined;
-  readonly probes: readonly DesktopAgentProbe[];
-}): React.JSX.Element {
-  const availability = useMemo(() => new Map(probes.map((probe) => [probe.id, probe])), [probes]);
-  if (preview === undefined) {
-    return (
-      <section className="configuration-view configuration-loading">
-        <strong>正在读取有效配置…</strong>
-      </section>
-    );
-  }
-  return (
-    <section className="configuration-view">
-      <header className="configuration-heading">
-        <div>
-          <div className="configuration-title-row">
-            <h1>工作区配置</h1>
-            <span className="readonly-pill">只读预览</span>
-          </div>
-          <p>展示当前进程实际加载的配置与本地路径，不会修改 <code>config.json</code>。</p>
-        </div>
-        <div className="configuration-version">
-          <span>SCHEMA</span>
-          <strong>v{preview.config.version}</strong>
-        </div>
-      </header>
-      <div className="configuration-scroll">
-        <section className="configuration-callout">
-          <div>
-            <span className="eyebrow">本次加载来源</span>
-            <strong>{configurationSourceLabel(preview.source)}</strong>
-            <p>配置编辑与保存会在确定便携配置、机器本地凭据和迁移边界后接入。</p>
-          </div>
-          <span className={`source-badge ${preview.source}`}>{preview.source}</span>
-        </section>
-
-        <section className="configuration-section">
-          <div className="configuration-section-heading">
-            <div><span className="eyebrow">WORKSPACE</span><h2>工作区与存储</h2></div>
-            <code>{preview.config.roomId}</code>
-          </div>
-          <dl className="configuration-paths">
-            <div><dt>项目根目录</dt><dd><code title={preview.root}>{preview.root}</code></dd></div>
-            <div><dt>Mesh 数据目录</dt><dd><code title={preview.dataDirectory}>{preview.dataDirectory}</code></dd></div>
-            <div><dt>配置文件</dt><dd><code title={preview.configPath}>{preview.configPath}</code></dd></div>
-            <div><dt>SQLite 数据库</dt><dd><code title={preview.databasePath}>{preview.databasePath}</code></dd></div>
-          </dl>
-        </section>
-
-        <section className="configuration-section">
-          <div className="configuration-section-heading">
-            <div><span className="eyebrow">AGENTS</span><h2>Agent 运行配置</h2></div>
-            <span>{preview.config.agents.length} 个 Agent</span>
-          </div>
-          <div className="configuration-agents">
-            {preview.config.agents.map((agent) => {
-              const probe = availability.get(agent.id);
-              const command = agent.command ?? (agent.adapter === "opencode-acp" ? "opencode" : "codex");
-              return (
-                <article className={`configuration-agent avatar-${agent.handle.slice(0, 1)}`} key={agent.id}>
-                  <header>
-                    <div className="configuration-agent-avatar">{agent.name.slice(0, 1)}</div>
-                    <div>
-                      <strong>{agent.name}</strong>
-                      <span>@{agent.handle} · {agent.id}</span>
-                    </div>
-                    <span className={`availability-badge ${probe === undefined ? "checking" : probe.available ? "available" : "unavailable"}`}>
-                      {probe === undefined ? "检测中" : probe.available ? "可用" : "不可用"}
-                    </span>
-                  </header>
-                  <dl className="configuration-agent-facts">
-                    <div><dt>适配器</dt><dd><code>{agent.adapter}</code></dd></div>
-                    <div><dt>命令</dt><dd><code>{command}</code>{agent.command === undefined ? <small>默认</small> : null}</dd></div>
-                    <div><dt>权限策略</dt><dd>{permissionPolicyLabel(agent.permissionPolicy ?? "deny")}</dd></div>
-                    <div><dt>响应全体消息</dt><dd>{agent.respondToTeam === true ? "是" : "否"}</dd></div>
-                  </dl>
-                  <div className="configuration-prompt">
-                    <span>系统提示词</span>
-                    <p>{agent.systemPrompt ?? "未覆盖，使用 Mesh 运行时默认提示。"}</p>
-                  </div>
-                  {probe?.reason === undefined ? null : <p className="configuration-agent-error">{probe.reason}</p>}
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      </div>
-    </section>
   );
 }
 
@@ -877,24 +845,6 @@ function presenceLabel(state: string): string {
   return labels[state] ?? state;
 }
 
-function configurationSourceLabel(source: WorkspaceConfigPreview["source"]): string {
-  const labels: Readonly<Record<WorkspaceConfigPreview["source"], string>> = {
-    default: "内置默认配置",
-    file: "工作区配置文件",
-    provided: "启动时提供的配置",
-  };
-  return labels[source];
-}
-
-function permissionPolicyLabel(policy: "deny" | "allow-once" | "allow-always"): string {
-  const labels = {
-    deny: "拒绝工具权限",
-    "allow-once": "单次允许",
-    "allow-always": "始终允许",
-  } as const;
-  return labels[policy];
-}
-
 function formatClock(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -905,6 +855,17 @@ function formatClock(timestamp: number): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function configurationErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  if (message.includes("changed after it was read")) {
+    return "配置已被其他进程修改。请点击“重新加载”获取最新版本，再重新编辑。";
+  }
+  if (message.includes("already being saved")) {
+    return "另一个进程正在保存配置，请稍后重试。";
+  }
+  return message;
 }
 
 function previewEvent(

@@ -60,7 +60,10 @@ parse them.
 An open `MeshWorkspace` is an immutable composition snapshot. Saving different
 configuration does not mutate its live adapters, Room, or SQLite composition.
 The caller must close and reopen the workspace after a changed save. Desktop
-editing must preserve this boundary when it is added.
+editing preserves this boundary through a replaceable main-process workspace
+host: IPC operations are serialized around the transition, the old runtime is
+closed, and subscriptions move to the newly composed workspace. A reload failure
+attempts to restore the previous persisted config before resuming.
 
 The CLI exposes the same contract as a round-trip workflow. `config preview`
 produces an edit document containing the workspace identity, data directory,
@@ -68,6 +71,12 @@ revision, and nested config. `config validate` accepts either that document or a
 raw config, while `config apply` requires the complete preview document and
 rejects a mismatched workspace or stale revision. Users edit only the nested
 `config` value.
+
+The Desktop form edits all fields already present in config version 1. It binds
+each save to the preview revision, reports conflicts without closing the active
+workspace, and offers an explicit disk reload. Provider/model options, Agent
+list mutation, and workspace selection remain separate Phase 3A work because
+they require schema or onboarding decisions beyond this persistence contract.
 
 ## Schema evolution
 

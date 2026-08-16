@@ -10,6 +10,10 @@ const api: DesktopApi = Object.freeze({
   snapshot: () => ipcRenderer.invoke(desktopChannels.snapshot) as Promise<Awaited<ReturnType<DesktopApi["snapshot"]>>>,
   configPreview: () =>
     ipcRenderer.invoke(desktopChannels.configPreview) as Promise<Awaited<ReturnType<DesktopApi["configPreview"]>>>,
+  saveConfig: (input: Parameters<DesktopApi["saveConfig"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.saveConfig, input) as Promise<Awaited<ReturnType<DesktopApi["saveConfig"]>>>,
+  reloadConfig: () =>
+    ipcRenderer.invoke(desktopChannels.reloadConfig) as Promise<Awaited<ReturnType<DesktopApi["reloadConfig"]>>>,
   postMessage: (input: Parameters<DesktopApi["postMessage"]>[0]) =>
     ipcRenderer.invoke(desktopChannels.postMessage, input) as Promise<Awaited<ReturnType<DesktopApi["postMessage"]>>>,
   createTask: (input: Parameters<DesktopApi["createTask"]>[0]) =>

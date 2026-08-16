@@ -8,6 +8,8 @@ export type { AgentAction } from "@ai-mesh/application";
 export const desktopChannels = Object.freeze({
   snapshot: "mesh:snapshot",
   configPreview: "mesh:config-preview",
+  saveConfig: "mesh:save-config",
+  reloadConfig: "mesh:reload-config",
   snapshotUpdated: "mesh:snapshot-updated",
   postMessage: "mesh:post-message",
   createTask: "mesh:create-task",

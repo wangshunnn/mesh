@@ -97,6 +97,11 @@ export interface WorkspaceConfigWriteResult extends WorkspaceConfigPreview {
   readonly changed: boolean;
 }
 
+export interface WorkspaceConfigSaveInput {
+  readonly expectedRevision: string | null;
+  readonly config: WorkspaceConfig;
+}
+
 export type AgentAction = "start" | "stop" | "restart" | "wake";
 
 export interface AgentProbeView {
@@ -115,6 +120,8 @@ export interface AgentProbeView {
 export interface MeshClient {
   snapshot(): Promise<RoomSnapshot>;
   configPreview(): Promise<WorkspaceConfigPreview>;
+  saveConfig(input: WorkspaceConfigSaveInput): Promise<WorkspaceConfigWriteResult>;
+  reloadConfig(): Promise<WorkspaceConfigPreview>;
   postMessage(input: { readonly text: string; readonly to?: string }): Promise<RoomSnapshot>;
   createTask(input: {
     readonly title: string;

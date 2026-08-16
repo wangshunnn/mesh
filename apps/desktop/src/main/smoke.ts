@@ -4,14 +4,13 @@ import { join } from "node:path";
 
 import { BrowserWindow, app } from "electron";
 
-import { MeshWorkspace } from "@ai-mesh/workspace";
-
 import { registerDesktopIpc } from "./ipc.js";
+import { DesktopWorkspaceHost } from "./workspace-host.js";
 
 const root = mkdtempSync(join(tmpdir(), "mesh-electron-smoke-"));
 const screenshotDirectory = process.env.MESH_SMOKE_SCREENSHOT_DIR;
 const rendererErrors: string[] = [];
-let workspace: MeshWorkspace | undefined;
+let workspaceHost: DesktopWorkspaceHost | undefined;
 let window: BrowserWindow | undefined;
 let unregisterIpc: (() => void) | undefined;
 let exitCode = 1;
@@ -32,8 +31,8 @@ try {
 async function runSmoke(): Promise<void> {
   try {
     console.log("Electron smoke: app ready.");
-    workspace = MeshWorkspace.open({ root });
-    unregisterIpc = registerDesktopIpc(workspace);
+    workspaceHost = DesktopWorkspaceHost.open(root);
+    unregisterIpc = registerDesktopIpc(workspaceHost);
 
     window = new BrowserWindow({
       show: false,
@@ -73,11 +72,37 @@ async function runSmoke(): Promise<void> {
         while (document.querySelector(".configuration-view") === null && Date.now() < renderDeadline) {
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
+        const nameInput = document.querySelector(".configuration-agent-form input");
+        const saveButton = document.querySelector(".configuration-save");
+        if (!(nameInput instanceof HTMLInputElement)) throw new Error("configuration name input is missing");
+        if (!(saveButton instanceof HTMLButtonElement)) throw new Error("configuration save button is missing");
+        const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        if (setInputValue === undefined) throw new Error("input value setter is missing");
+        setInputValue.call(nameInput, "OpenCode Smoke");
+        nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+        const editDeadline = Date.now() + 1000;
+        while (saveButton.disabled && Date.now() < editDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        if (saveButton.disabled) throw new Error("configuration save did not become available");
+        saveButton.click();
+        let savedConfig = config;
+        const saveDeadline = Date.now() + 5000;
+        while (Date.now() < saveDeadline) {
+          savedConfig = await window.mesh.configPreview();
+          if (savedConfig.config.agents[0]?.name === "OpenCode Smoke") break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        const reloadedSnapshot = await window.mesh.snapshot();
         return {
-          roomId: snapshot.roomId,
-          agentCount: snapshot.agents.length,
+          roomId: reloadedSnapshot.roomId,
+          agentCount: reloadedSnapshot.agents.length,
           configRoomId: config.config.roomId,
           configSource: config.source,
+          savedConfigSource: savedConfig.source,
+          savedConfigRevision: savedConfig.revision,
+          savedAgentName: savedConfig.config.agents[0]?.name ?? "",
+          configEditable: document.querySelector(".editable-pill") !== null,
           configRendered: document.querySelector(".configuration-view") !== null,
           rendered: document.querySelector(".shell") !== null,
           errorBanner: document.querySelector(".error-banner")?.textContent ?? ""
@@ -89,6 +114,10 @@ async function runSmoke(): Promise<void> {
       readonly agentCount: number;
       readonly configRoomId: string;
       readonly configSource: string;
+      readonly savedConfigSource: string;
+      readonly savedConfigRevision: string | null;
+      readonly savedAgentName: string;
+      readonly configEditable: boolean;
       readonly configRendered: boolean;
       readonly rendered: boolean;
       readonly errorBanner: string;
@@ -96,9 +125,13 @@ async function runSmoke(): Promise<void> {
     if (
       !result.rendered ||
       !result.configRendered ||
+      !result.configEditable ||
       result.roomId !== "room:main" ||
       result.configRoomId !== "room:main" ||
       result.configSource !== "default" ||
+      result.savedConfigSource !== "file" ||
+      result.savedConfigRevision === null ||
+      result.savedAgentName !== "OpenCode Smoke" ||
       result.agentCount !== 2
     ) {
       throw new Error(`Unexpected desktop state: ${JSON.stringify(result)}`);
@@ -168,7 +201,7 @@ async function runSmoke(): Promise<void> {
     unregisterIpc?.();
     window?.destroy();
     try {
-      await workspace?.close();
+      await workspaceHost?.close();
     } catch (error) {
       console.error("Could not close Electron smoke workspace:", error);
       exitCode = 1;
