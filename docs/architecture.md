@@ -11,28 +11,51 @@ One room has one shared, replayable reality and many independent participant min
 
 ## Implementation shape
 
-Mesh is a TypeScript monorepo. Protocol, Room policies, participant runtime,
-Agent sessions, collaboration behavior, persistence, and workspace composition
-are packages below both product entry points. The CLI is the headless/core entry
-point; Electron is a client that bundles a React renderer and talks to the same
-workspace service through typed IPC.
+Mesh is a TypeScript monorepo. Protocol, browser-safe application contracts,
+Room policies, participant runtime, Agent sessions, collaboration behavior,
+persistence, and workspace composition are packages below both product entry
+points. The CLI is the headless/core entry point; Electron is a client that
+bundles a React renderer and implements the application contract through typed
+IPC.
 
 This layering is deliberate:
 
 ```text
-CLI -----------------------> @ai-mesh/workspace
-                                  |
-Electron main + typed IPC ------> |
-                                  v
-                       collaboration runtime
-                         /       |        \
-                    adapters   Room     trace journal
-                                  |        |
-                                  +-- SQLite
+CLI -------------------------> @ai-mesh/workspace <--- Electron main
+                                      |
+                                      v
+                           collaboration runtime
+                             /       |        \
+                        adapters   Room     trace journal
+                                      |        |
+                                      +-- SQLite
+
+React renderer ---> MeshClient ---> preload/typed IPC ---> Electron main
 ```
 
 The product does not currently need a TUI. Rust remains an option for a future
 measured systems constraint, not a default implementation layer.
+
+## Package and capability boundaries
+
+Package seams follow three roles:
+
+1. **definition** packages own transport-neutral contracts;
+2. **provider** packages implement one contract without selecting themselves;
+3. **composition** packages select providers and own process-local resources.
+
+`@ai-mesh/protocol`, `@ai-mesh/application`, and `@ai-mesh/agent` are definition
+layers. The Room/runtime packages provide shared policy and delivery behavior;
+adapter and SQLite packages are concrete providers. `@ai-mesh/workspace` is the
+local composition root. Product clients never choose Room commit semantics or
+receive concrete provider objects.
+
+These boundaries are enforced by `pnpm check:boundaries`, including an explicit
+workspace dependency allowlist, cycle detection, manifest/project-reference
+agreement, and the browser boundary. Desktop renderer and shared code may import
+only `@ai-mesh/application` and `@ai-mesh/protocol`; they cannot import Node
+built-ins or reach into the host-side workspace. The complete dependency map and
+extension rules are in [`package-boundaries.md`](package-boundaries.md).
 
 ## Commit path
 
@@ -103,16 +126,25 @@ and either commits its next valid action or recomputes after a causal conflict.
 
 ## Product entry points
 
-`@ai-mesh/workspace` owns configuration, the SQLite connection, adapters, and the
-collaboration runtime. Both entry points use that service:
+`@ai-mesh/workspace` owns configuration, the SQLite connection, adapter-provider
+selection, and the collaboration runtime. Both entry points use that service:
 
 - `@ai-mesh/cli` exposes headless/npm workflows and automation primitives;
-- `@ai-mesh/desktop` exposes the same room through typed Electron IPC and React.
+- `@ai-mesh/desktop` exposes the same room by implementing the browser-safe
+  `MeshClient` contract through preload and typed Electron IPC.
 
-Effective configuration is also projected by `@ai-mesh/workspace`. The CLI and
-Electron main process consume that projection; the sandboxed renderer never
-reads `.mesh/config.json` or workspace paths directly. Read-only inspection does
-not imply or define future configuration write, credential, or migration policy.
+Effective configuration types and client projections live in
+`@ai-mesh/application`; side-effect-free resolution and validation live in
+`@ai-mesh/workspace`. The CLI and Electron main process invoke the workspace;
+the sandboxed renderer receives only the application projection and never reads
+`.mesh/config.json` or workspace paths directly. Read-only inspection does not
+imply or define future configuration write, credential, or migration policy.
+
+The workspace adapter registry is an immutable code-level injection seam. It
+removes provider construction from general workspace lifecycle code and permits
+deterministic substitution in tests, but deliberately does not load external
+plugins. Configuration version 1 remains a closed union of the two verified
+adapter kinds until a public compatibility and security model is approved.
 
 The GUI is therefore one client of the collaboration core. Closing it does not
 define or erase the room protocol.

@@ -6,11 +6,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../application" },
-    { "path": "../agent" },
-    { "path": "../protocol" },
-    { "path": "../room" },
-    { "path": "../runtime" }
-  ]
+  "references": [{ "path": "../protocol" }]
 }

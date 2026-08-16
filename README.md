@@ -10,6 +10,8 @@ The current vertical slice includes:
 - independent agent workers over one canonical shared room history;
 - an ACP adapter for OpenCode and a native JSONL adapter for Codex;
 - a headless CLI package and an Electron + React desktop client;
+- a browser-safe application contract between product clients and the local
+  workspace composition root;
 - room chat, attention, presence, tasks, a persistent developer trace, and restart recovery;
 - bounded, change-aware candidate reconciliation that coalesces Room deltas without eager cancellation;
 - deterministic idempotency;
@@ -26,6 +28,8 @@ pnpm eval counting
 
 Run the repeatable non-GUI phase gate with `pnpm verify`; use
 `pnpm smoke:desktop` for the real Electron startup/IPC/renderer smoke test.
+`pnpm verify` begins by enforcing the acyclic internal dependency allowlist and
+the Desktop browser boundary.
 
 Initialize and inspect a workspace through the CLI:
 
@@ -55,3 +59,5 @@ For a new-machine or new-Agent handoff, start with
 order is indexed in [`docs/README.md`](docs/README.md), milestones and acceptance
 criteria live in [`docs/roadmap.md`](docs/roadmap.md), and stable design invariants
 are documented in [`docs/architecture.md`](docs/architecture.md).
+The package dependency map and extension seams are recorded in
+[`docs/package-boundaries.md`](docs/package-boundaries.md).

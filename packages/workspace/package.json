@@ -16,6 +16,7 @@
     "test": "node --test dist/*.test.js"
   },
   "dependencies": {
+    "@ai-mesh/application": "workspace:*",
     "@ai-mesh/adapter-acp": "workspace:*",
     "@ai-mesh/adapter-native": "workspace:*",
     "@ai-mesh/agent": "workspace:*",

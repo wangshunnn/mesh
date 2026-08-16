@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { CoreAction, type TraceRecord } from "@ai-mesh/protocol";
-import type { RoomSnapshot } from "@ai-mesh/workspace";
+import type { RoomSnapshot } from "@ai-mesh/application";
 
 import {
   buildTraceTimeline,

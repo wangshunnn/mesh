@@ -7,6 +7,7 @@
   },
   "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"],
   "references": [
+    { "path": "../../packages/application" },
     { "path": "../../packages/protocol" },
     { "path": "../../packages/workspace" }
   ]

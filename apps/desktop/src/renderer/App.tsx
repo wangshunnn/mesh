@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/workspace";
+import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/application";
 import {
   CoreAction,
   type RoomEvent,

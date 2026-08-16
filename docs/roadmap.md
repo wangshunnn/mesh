@@ -2,7 +2,7 @@
 
 Last updated: **2026-08-16**
 
-Current implementation baseline: **`08f15de`**
+Starting Git baseline for the current increment: **`b782266`**
 
 Current position: **Phase 2A verified; Phase 3A read-only enabling work is in progress**
 
@@ -182,6 +182,12 @@ Proposed scope:
 - [x] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
 - [x] Preview effective configuration without writing `.mesh/config.json`
   through the headless API, CLI, and typed desktop IPC/UI
+- [x] Separate the browser-safe application/client contract from the local
+  workspace composition root
+- [x] Separate config resolution and built-in adapter providers behind an
+  immutable code-level registry without opening external plugin loading
+- [x] Enforce the internal workspace dependency graph, TypeScript references,
+  cycle freedom, and Desktop browser boundary in `pnpm verify`
 - [ ] Preserve a headless API for the same operations
 - [ ] Add config migration and round-trip tests before changing config version 1
 
@@ -237,7 +243,8 @@ requiring the desktop product.
 
 Proposed scope:
 
-- [ ] Decide public package boundaries and compatibility guarantees
+- [ ] Decide which of the now-enforced internal package boundaries become public
+  and assign compatibility guarantees only to that supported subset
 - [ ] Publish a minimal Room/collaboration SDK under the `@ai-mesh` scope
 - [ ] Publish a headless CLI package only where it improves integration workflows
 - [ ] Define an external Agent adapter contract and conformance suite

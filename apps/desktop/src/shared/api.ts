@@ -1,27 +1,9 @@
-import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/workspace";
-import type { TaskStatus } from "@ai-mesh/protocol";
+import type { AgentProbeView, MeshClient } from "@ai-mesh/application";
 
-export type AgentAction = "start" | "stop" | "restart" | "wake";
-
-export interface DesktopAgentProbe {
-  readonly id: string;
-  readonly available: boolean;
-  readonly version?: string;
-  readonly reason?: string;
-}
-
-export interface DesktopApi {
-  snapshot(): Promise<RoomSnapshot>;
-  configPreview(): Promise<WorkspaceConfigPreview>;
-  postMessage(input: { readonly text: string; readonly to?: string }): Promise<RoomSnapshot>;
-  createTask(input: { readonly title: string; readonly description?: string }): Promise<RoomSnapshot>;
-  claimTask(input: { readonly taskId: string; readonly ownerId: string }): Promise<RoomSnapshot>;
-  updateTask(input: { readonly taskId: string; readonly status: TaskStatus }): Promise<RoomSnapshot>;
-  agentAction(input: { readonly agentId: string; readonly action: AgentAction }): Promise<RoomSnapshot>;
-  probeAgents(): Promise<readonly DesktopAgentProbe[]>;
-  startAvailableAgents(): Promise<RoomSnapshot>;
-  onSnapshot(listener: (snapshot: RoomSnapshot) => void): () => void;
-}
+/** Electron transport implementation of the browser-safe application contract. */
+export type DesktopApi = MeshClient;
+export type DesktopAgentProbe = AgentProbeView;
+export type { AgentAction } from "@ai-mesh/application";
 
 export const desktopChannels = Object.freeze({
   snapshot: "mesh:snapshot",

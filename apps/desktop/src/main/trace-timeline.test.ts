@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { TraceRecord } from "@ai-mesh/protocol";
-import type { RoomSnapshot } from "@ai-mesh/workspace";
+import type { RoomSnapshot } from "@ai-mesh/application";
 
 import { buildTraceTimeline } from "../shared/trace-timeline.js";
 

@@ -13,7 +13,9 @@ the original design conversation.
    including explicit entry and exit gates.
 3. [`architecture.md`](architecture.md) — stable design invariants and the reasons
    behind the Room, runtime, persistence, adapter, and trace boundaries.
-4. The root [`README.md`](../README.md) — short product overview and common
+4. [`package-boundaries.md`](package-boundaries.md) — the executable monorepo
+   dependency map and extension seams.
+5. The root [`README.md`](../README.md) — short product overview and common
    development commands.
 
 ## Source-of-truth rules
@@ -24,6 +26,8 @@ the original design conversation.
   because they appear there.
 - `architecture.md` records durable decisions and should not be used as a progress
   tracker.
+- `package-boundaries.md` explains the policy enforced by
+  `scripts/check-package-boundaries.mjs`.
 
 When a phase is completed, update its status and verification evidence in the
 same commit. If the documents disagree with the code, stop, inspect the relevant

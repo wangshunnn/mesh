@@ -26,6 +26,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@ai-mesh/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@ai-mesh/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -69,11 +72,20 @@ importers:
 
   packages/agent: {}
 
+  packages/application:
+    dependencies:
+      '@ai-mesh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/collaboration:
     dependencies:
       '@ai-mesh/agent':
         specifier: workspace:*
         version: link:../agent
+      '@ai-mesh/application':
+        specifier: workspace:*
+        version: link:../application
       '@ai-mesh/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -136,6 +148,9 @@ importers:
       '@ai-mesh/agent':
         specifier: workspace:*
         version: link:../agent
+      '@ai-mesh/application':
+        specifier: workspace:*
+        version: link:../application
       '@ai-mesh/collaboration':
         specifier: workspace:*
         version: link:../collaboration

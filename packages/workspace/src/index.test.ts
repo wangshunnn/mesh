@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { ScriptedAgentAdapter } from "@ai-mesh/agent";
+
 import {
   MeshWorkspace,
+  WorkspaceAdapterRegistry,
   defaultWorkspaceConfig,
   previewWorkspaceConfig,
   validateWorkspaceConfig,
@@ -74,4 +77,39 @@ test("workspace config rejects duplicate and unsupported adapters", () => {
       }),
     /unsupported adapter/,
   );
+});
+
+test("workspace composition resolves adapters through an immutable provider registry", async () => {
+  const provider = Object.freeze({
+    kind: "codex-native" as const,
+    create: () => new ScriptedAgentAdapter("test-codex", () => "@human done"),
+  });
+  const registry = new WorkspaceAdapterRegistry([provider]);
+  assert.deepEqual(registry.kinds(), ["codex-native"]);
+  assert.throws(
+    () => new WorkspaceAdapterRegistry([provider, provider]),
+    /Duplicate workspace adapter provider/,
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "mesh-workspace-provider-"));
+  const workspace = MeshWorkspace.open({
+    root,
+    adapterRegistry: registry,
+    config: {
+      version: 1,
+      roomId: "room:provider-test",
+      agents: [
+        {
+          id: "agent:test",
+          name: "Test",
+          handle: "test",
+          adapter: "codex-native",
+        },
+      ],
+    },
+  });
+  const probes = await workspace.probeAgents();
+  assert.equal(probes[0]?.availability.available, true);
+  assert.equal(probes[0]?.availability.command, "test-codex");
+  await workspace.close();
 });

@@ -1,17 +1,19 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { BrowserWindow, app, ipcMain } from "electron";
+import { BrowserWindow, app } from "electron";
 
 import { MeshWorkspace } from "@ai-mesh/workspace";
 
-import { desktopChannels } from "../shared/api.js";
+import { registerDesktopIpc } from "./ipc.js";
 
 const root = mkdtempSync(join(tmpdir(), "mesh-electron-smoke-"));
+const screenshotDirectory = process.env.MESH_SMOKE_SCREENSHOT_DIR;
 const rendererErrors: string[] = [];
 let workspace: MeshWorkspace | undefined;
 let window: BrowserWindow | undefined;
+let unregisterIpc: (() => void) | undefined;
 let exitCode = 1;
 const deadline = setTimeout(() => {
   console.error("Electron smoke timed out after 15 seconds.");
@@ -31,18 +33,7 @@ async function runSmoke(): Promise<void> {
   try {
     console.log("Electron smoke: app ready.");
     workspace = MeshWorkspace.open({ root });
-    const activeWorkspace = workspace;
-    ipcMain.handle(desktopChannels.snapshot, () => activeWorkspace.snapshot());
-    ipcMain.handle(desktopChannels.configPreview, () => activeWorkspace.configPreview());
-    ipcMain.handle(desktopChannels.probeAgents, async () => {
-      const probes = await activeWorkspace.probeAgents();
-      return probes.map((probe) => ({
-        id: probe.id,
-        available: probe.availability.available,
-        ...(probe.availability.version === undefined ? {} : { version: probe.availability.version }),
-        ...(probe.availability.reason === undefined ? {} : { reason: probe.availability.reason }),
-      }));
-    });
+    unregisterIpc = registerDesktopIpc(workspace);
 
     window = new BrowserWindow({
       show: false,
@@ -158,6 +149,14 @@ async function runSmoke(): Promise<void> {
       ) {
         throw new Error(`Unexpected configuration layout: ${JSON.stringify(layout)}`);
       }
+      if (screenshotDirectory !== undefined) {
+        mkdirSync(screenshotDirectory, { recursive: true });
+        const screenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `configuration-${String(size.width)}x${String(size.height)}.png`),
+          screenshot.toPNG(),
+        );
+      }
     }
     console.log(
       `Electron smoke passed: ${result.roomId}, ${String(result.agentCount)} agents; configuration ${layouts.map((layout) => `${String(layout.width)}x${String(layout.height)}`).join(" and ")}.`,
@@ -166,9 +165,7 @@ async function runSmoke(): Promise<void> {
   } catch (error) {
     console.error(error instanceof Error ? error.stack : String(error));
   } finally {
-    ipcMain.removeHandler(desktopChannels.snapshot);
-    ipcMain.removeHandler(desktopChannels.configPreview);
-    ipcMain.removeHandler(desktopChannels.probeAgents);
+    unregisterIpc?.();
     window?.destroy();
     try {
       await workspace?.close();

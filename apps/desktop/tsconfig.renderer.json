@@ -8,5 +8,9 @@
     "noEmit": true,
     "tsBuildInfoFile": "dist/renderer/.tsbuildinfo"
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts"]
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts"],
+  "references": [
+    { "path": "../../packages/application" },
+    { "path": "../../packages/protocol" }
+  ]
 }

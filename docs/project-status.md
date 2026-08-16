@@ -4,7 +4,7 @@ Last updated: **2026-08-16**
 
 Implementation branch: **`main`**
 
-Implementation baseline: **`08f15de`** (`feat(collaboration): add change-aware candidate reconciliation`)
+Starting Git baseline for the current increment: **`b782266`** (`feat(desktop): add read-only workspace config view`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -31,6 +31,17 @@ Electron IPC into a read-only desktop configuration view showing its source,
 workspace paths, and resolved Room/Agent values. The Phase 3A product
 configuration entry gate remains open; no write model has been selected.
 
+The monorepo boundary is now hardened without changing product semantics. A new
+browser-safe `@ai-mesh/application` package owns client projections and the
+transport-neutral `MeshClient` contract; Desktop renderer/shared code no longer
+imports the host-side workspace. Workspace configuration, adapter providers, and
+composition are separate modules, with an immutable code-level provider registry
+for the two config-v1 adapter kinds. Collaboration projection, reconciliation,
+trace, identifiers, and public runtime types are split into focused internal
+modules. An executable dependency allowlist and package READMEs document and
+enforce the intended seams. This is not external plugin support and does not
+resolve the Phase 3A configuration-write gate.
+
 | Area | Current state |
 | --- | --- |
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
@@ -38,6 +49,7 @@ configuration entry gate remains open; no write model has been selected.
 | Candidate reconciliation | Implemented and verified in Phase 2A |
 | Desktop product | Chinese local-room GUI with trajectory and read-only configuration views; development build only |
 | CLI | Built headless workspace entry point with a verified root `pnpm mesh` shortcut |
+| Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Local SQLite under `.mesh/` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
@@ -128,11 +140,15 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 
 ### Product entry points
 
-- `@ai-mesh/workspace` composes config, SQLite, adapters, and collaboration runtime.
+- `@ai-mesh/application` owns browser-safe product projections and the
+  transport-neutral client contract; it contains no host implementation.
+- `@ai-mesh/workspace` resolves config and composes SQLite, registered adapter
+  providers, and collaboration runtime.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
   a side-effect-free effective-config preview, and a real-Agent demo.
-- `@ai-mesh/desktop` exposes the same workspace through typed Electron IPC and a
-  React GUI, including a read-only projection of the effective workspace config.
+- `@ai-mesh/desktop` implements the application contract through one shared typed
+  Electron IPC registration path and a React GUI, including a read-only
+  projection of the effective workspace config.
 - The Electron renderer is sandboxed with context isolation and no Node
   integration.
 
@@ -169,6 +185,15 @@ projection, navigates to the configuration view, and checks 1440×900 and the
 minimum 1040×680 viewport for horizontal overflow and usable Agent-card widths;
 browser inspection at 1280×720 reported no console warnings or errors.
 
+The current package-boundary hardening increment passed `pnpm verify` on macOS
+on 2026-08-16. The gate checked all 13 workspaces for allowed dependencies,
+cycles, declared imports, TypeScript references, and browser/Node separation;
+then passed the forced build, package exports, all package tests, 16/16
+collaboration tests, and all six kernel evals. `pnpm smoke:desktop` exercised the
+same complete IPC registration used by the real app. Captured configuration-view
+QA at 1440×900 and 1040×680 showed no clipping, horizontal overflow, unusable
+cards, or renderer warning/error diagnostics.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
@@ -182,8 +207,9 @@ These are current boundaries, not regressions:
    permission policies, prompts, and response-to-team behavior, but changing
    them still requires editing `.mesh/config.json`; provider/model settings and
    safe GUI persistence are not defined yet.
-4. **Two production adapter kinds.** Workspace validation currently accepts only
-   `opencode-acp` and `codex-native`; there is no external adapter registry.
+4. **Two production adapter kinds.** Workspace validation and its immutable
+   code-level provider registry currently accept only `opencode-acp` and
+   `codex-native`; there is no dynamic or external plugin loading contract.
 5. **Development distribution only.** There is no signed installer, release
    channel, auto-update flow, or published `@ai-mesh/*` package.
 6. **No hard invalidation.** Stop/supersede actions do not yet cancel a currently
@@ -271,6 +297,7 @@ Ask the Agent to read `AGENTS.md`, then this file, `roadmap.md`, and
 | Path | Responsibility |
 | --- | --- |
 | `packages/protocol` | Shared event, intent, payload, task, and trace types |
+| `packages/application` | Browser-safe product projections and client contract |
 | `packages/room` | Ledger, subject versions, idempotency, and action policies |
 | `packages/runtime` | Participant inboxes, durable cursors, and wake hints |
 | `packages/agent` | Vendor-neutral adapter and session interfaces |
@@ -282,6 +309,7 @@ Ask the Agent to read `AGENTS.md`, then this file, `roadmap.md`, and
 | `packages/evals` | Executable causal/concurrency acceptance scenarios |
 | `apps/cli` | Headless CLI over `@ai-mesh/workspace` |
 | `apps/desktop` | Electron main/preload, typed IPC, and Chinese React renderer |
+| `docs/package-boundaries.md` | Enforced dependency map and extension seams |
 
 ## Decisions that should remain stable
 

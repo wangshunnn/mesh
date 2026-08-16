@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @ai-mesh/desktop build:preload && pnpm --filter @ai-mesh/desktop build:renderer",
     "check": "tsc -b --pretty false",
+    "check:boundaries": "node scripts/check-package-boundaries.mjs",
     "check:exports": "node scripts/check-workspace-exports.mjs",
     "clean": "tsc -b --clean",
     "eval": "pnpm build && pnpm --filter @ai-mesh/evals eval",
@@ -18,7 +19,7 @@
     "smoke:cli": "pnpm --filter @ai-mesh/cli build && pnpm mesh --help",
     "smoke:desktop": "pnpm --filter @ai-mesh/desktop smoke",
     "test": "pnpm build && pnpm --filter @ai-mesh/room test && pnpm --filter @ai-mesh/runtime test && pnpm --filter @ai-mesh/store-sqlite test && pnpm --filter @ai-mesh/adapter-acp test && pnpm --filter @ai-mesh/adapter-native test && pnpm --filter @ai-mesh/collaboration test && pnpm --filter @ai-mesh/workspace test && pnpm --filter @ai-mesh/cli test && pnpm --filter @ai-mesh/desktop test && pnpm --filter @ai-mesh/evals test",
-    "verify": "pnpm clean && pnpm exec tsc -b --force --pretty false && pnpm --filter @ai-mesh/desktop build:preload && pnpm --filter @ai-mesh/desktop build:renderer && pnpm check:exports && pnpm smoke:cli && pnpm test && pnpm --filter @ai-mesh/evals eval all",
+    "verify": "pnpm check:boundaries && pnpm clean && pnpm exec tsc -b --force --pretty false && pnpm --filter @ai-mesh/desktop build:preload && pnpm --filter @ai-mesh/desktop build:renderer && pnpm check:exports && pnpm smoke:cli && pnpm test && pnpm --filter @ai-mesh/evals eval all",
     "desktop": "pnpm --filter @ai-mesh/desktop dev"
   },
   "devDependencies": {

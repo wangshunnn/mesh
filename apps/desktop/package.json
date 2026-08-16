@@ -15,6 +15,7 @@
     "test": "node --test dist/electron/**/*.test.js"
   },
   "dependencies": {
+    "@ai-mesh/application": "workspace:*",
     "@ai-mesh/protocol": "workspace:*",
     "@ai-mesh/workspace": "workspace:*",
     "react": "^19.1.1",
