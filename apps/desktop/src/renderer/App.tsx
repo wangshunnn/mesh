@@ -301,10 +301,12 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
 });
 
 const previewConfig: WorkspaceConfigPreview = Object.freeze({
+  workspaceId: "7eea79bc-9cbf-4d29-950b-c97ab0f52bdf",
   root: "/workspace/mesh",
-  dataDirectory: "/workspace/mesh/.mesh",
-  configPath: "/workspace/mesh/.mesh/config.json",
-  databasePath: "/workspace/mesh/.mesh/mesh.db",
+  meshHome: "/Users/demo/.mesh",
+  dataDirectory: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf",
+  configPath: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf/config.json",
+  databasePath: "/Users/demo/.mesh/workspaces/7eea79bc-9cbf-4d29-950b-c97ab0f52bdf/mesh.db",
   revision: null,
   source: "file",
   config: Object.freeze({

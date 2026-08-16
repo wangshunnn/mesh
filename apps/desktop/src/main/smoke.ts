@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +7,10 @@ import { BrowserWindow, app } from "electron";
 import { registerDesktopIpc } from "./ipc.js";
 import { DesktopWorkspaceHost } from "./workspace-host.js";
 
-const root = mkdtempSync(join(tmpdir(), "mesh-electron-smoke-"));
+const fixtureDirectory = mkdtempSync(join(tmpdir(), "mesh-electron-smoke-"));
+const root = join(fixtureDirectory, "project");
+const meshHome = join(fixtureDirectory, "mesh-home");
+mkdirSync(root);
 const screenshotDirectory = process.env.MESH_SMOKE_SCREENSHOT_DIR;
 const rendererErrors: string[] = [];
 let workspaceHost: DesktopWorkspaceHost | undefined;
@@ -31,7 +34,7 @@ try {
 async function runSmoke(): Promise<void> {
   try {
     console.log("Electron smoke: app ready.");
-    workspaceHost = DesktopWorkspaceHost.open(root);
+    workspaceHost = DesktopWorkspaceHost.open(root, { meshHome });
     unregisterIpc = registerDesktopIpc(workspaceHost);
 
     window = new BrowserWindow({
@@ -140,6 +143,13 @@ async function runSmoke(): Promise<void> {
       throw new Error(
         `Renderer diagnostics: ${[result.errorBanner, ...rendererErrors].filter(Boolean).join(" | ")}`,
       );
+    }
+    const storage = await workspaceHost.run((activeWorkspace) => activeWorkspace.configPreview());
+    if (
+      !storage.dataDirectory.startsWith(join(meshHome, "workspaces")) ||
+      existsSync(join(root, ".mesh"))
+    ) {
+      throw new Error(`Workspace data was not centralized: ${JSON.stringify(storage)}`);
     }
     const layouts = [];
     for (const size of [{ width: 1440, height: 900 }, { width: 1040, height: 680 }]) {

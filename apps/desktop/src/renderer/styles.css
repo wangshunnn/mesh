@@ -510,7 +510,7 @@ input::placeholder { color: #a5a6a8; }
 .configuration-callout .configuration-notice { color: var(--green); font-weight: 590; }
 .configuration-callout .configuration-validation { color: var(--red); font-weight: 590; }
 .source-badge { padding: 5px 8px; border-radius: 6px; color: var(--blue); background: var(--blue-soft); font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.source-badge.default { color: var(--amber); background: #f8efe1; }
+.source-badge.default, .source-badge.legacy { color: var(--amber); background: #f8efe1; }
 .source-badge.provided { color: #655486; background: #f0edf6; }
 .configuration-section { margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .configuration-section-heading {

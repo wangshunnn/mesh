@@ -152,7 +152,9 @@ export function ConfigurationView({
             </label>
           </div>
           <dl className="configuration-paths">
+            <div><dt>工作区 ID</dt><dd><code title={preview.workspaceId}>{preview.workspaceId}</code></dd></div>
             <div><dt>项目根目录</dt><dd><code title={preview.root}>{preview.root}</code></dd></div>
+            <div><dt>Mesh 主目录</dt><dd><code title={preview.meshHome}>{preview.meshHome}</code></dd></div>
             <div><dt>Mesh 数据目录</dt><dd><code title={preview.dataDirectory}>{preview.dataDirectory}</code></dd></div>
             <div><dt>配置文件</dt><dd><code title={preview.configPath}>{preview.configPath}</code></dd></div>
             <div><dt>SQLite 数据库</dt><dd><code title={preview.databasePath}>{preview.databasePath}</code></dd></div>
@@ -278,6 +280,7 @@ function configurationSourceLabel(source: WorkspaceConfigPreview["source"]): str
   const labels: Readonly<Record<WorkspaceConfigPreview["source"], string>> = {
     default: "内置默认配置（首次保存将创建文件）",
     file: "工作区配置文件",
+    legacy: "待迁移的项目内配置",
     provided: "启动时提供的配置",
   };
   return labels[source];

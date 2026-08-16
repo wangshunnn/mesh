@@ -137,15 +137,25 @@ Effective configuration types and client projections live in
 `@ai-mesh/application`; side-effect-free resolution and validation live in
 `@ai-mesh/workspace`. The CLI and Electron main process invoke the workspace;
 the sandboxed renderer receives only the application projection and never reads
-`.mesh/config.json` or workspace paths directly.
+configuration files, the workspace registry, or workspace paths directly.
+
+Machine-local state is owned by one shared `MESH_HOME` (default `~/.mesh`), not
+by the user's project. An atomic registry maps canonical project paths to stable
+workspace UUIDs, and each UUID owns one private configuration/SQLite directory.
+The project root remains the Agent working directory but contains no implicit
+Mesh marker. This keeps CLI and GUI on one identity and persistence model while
+avoiding repository pollution. Legacy project-local `.mesh/` state is moved only
+after validation; if legacy and centralized stores both exist, composition fails
+loudly rather than selecting or merging canonical Room histories.
 
 Phase 3A configuration writes use one complete validated document, an opaque
-revision from the caller's preview, and an atomic same-directory replacement.
-Stale revisions are rejected. An open workspace remains an immutable composition
-snapshot, so a changed save requires close and reopen rather than mutating live
-Room or Agent resources in place. Credentials are not part of workspace config,
-and elevated permission policy is machine-local trust that must not transfer
-silently. The complete ownership and evolution rules are recorded in
+revision and stable workspace UUID from the caller's preview, and an atomic
+same-directory replacement. Stale revisions or mismatched registry bindings are
+rejected. An open workspace remains an immutable composition snapshot, so a
+changed save requires close and reopen rather than mutating live Room or Agent
+resources in place. Credentials are not part of workspace config, and elevated
+permission policy is machine-local trust that must not transfer silently. The
+complete ownership and evolution rules are recorded in
 [`configuration.md`](configuration.md).
 
 Electron implements close-and-reopen through a replaceable workspace host below

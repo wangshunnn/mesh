@@ -8,10 +8,33 @@ providers.
 
 ## Current storage
 
-`.mesh/config.json` remains the only persisted configuration document in the
-first Phase 3A write increment. It is machine-local and must not be committed.
+Mesh no longer writes runtime state into the user's project directory. CLI and
+Desktop resolve one machine-level home in this order:
+
+```text
+explicit API option > MESH_HOME > ~/.mesh
+```
+
+The home owns an atomic `registry.json` plus one private data directory per
+registered workspace:
+
+```text
+~/.mesh/
+  registry.json
+  workspaces/<workspace-id>/
+    config.json
+    mesh.db
+```
+
+The registry maps a stable UUID to the canonical real path, display name, and
+timestamps of an existing project directory. Two projects with the same basename
+remain distinct. The project directory is only a working directory reference;
+opening it does not create project-local metadata or require a Git ignore rule.
+
+`config.json` remains the only persisted configuration document in config
+version 1. It is machine-local and is not an implicit collaboration artifact.
 The portable/local classification below governs future explicit import or export;
-it does not imply automatic synchronization or a second config file in version 1.
+it does not imply automatic synchronization or a second config file.
 
 One complete config document is the unit of validation and replacement. Partial
 JSON mutation is not a public API because it can bypass cross-field validation
@@ -30,28 +53,48 @@ or leave duplicate Agent identities and handles.
 | Adapter command or executable path | Machine-local | Must be re-probed on each machine |
 | Permission policy | Machine-local trust | A future import defaults to `deny`; elevated trust never transfers silently |
 | Authentication, proxy, and environment | Machine-local | Mesh does not persist credentials in the config document |
-| SQLite path and resumable session IDs | Machine-local runtime state | Remain below `.mesh/` and outside configuration exports |
+| SQLite path and resumable session IDs | Machine-local runtime state | Remain in the registered workspace directory below `MESH_HOME` and outside configuration exports |
 
-“Portable” means eligible for a deliberate future export. The current ignored
-`.mesh/config.json` is still local, and config version 1 continues to store its
+“Portable” means eligible for a deliberate future export. The registered
+`config.json` is still local, and config version 1 continues to store its
 existing portable and local fields together.
+
+## Legacy project-local migration
+
+An unregistered workspace containing the former `<project>/.mesh/config.json`
+or `mesh.db` layout is migrated on its first mutating open or save. Mesh first
+validates the legacy config, registers the canonical project path, and then moves
+the complete legacy directory to `MESH_HOME/workspaces/<workspace-id>`. A
+cross-device move stages a complete copy under `MESH_HOME`, publishes it by
+atomic rename, and removes the source only after publication.
+
+A side-effect-free preview reports `source: "legacy"` but does not migrate. If
+both legacy and centralized data exist, Mesh fails loudly instead of choosing or
+merging histories. A `MESH_HOME` that overlaps the legacy directory is also
+rejected before registration so migration can never move a directory into
+itself. Migration and registry locks serialize cooperating processes.
 
 ## Read and write protocol
 
-`previewWorkspaceConfig` stays side-effect-free. A file-backed preview includes
-an opaque `revision`; a synthesized default or caller-provided preview uses a
-null revision because no file backs that value.
+`previewWorkspaceConfig` stays side-effect-free. It resolves a registered or
+provisional workspace UUID and the centralized target paths without creating
+`MESH_HOME`. A file-backed or legacy preview includes an opaque `revision`; a
+synthesized default or caller-provided preview uses a null revision because no
+file backs that value.
 
 `saveWorkspaceConfig` accepts a complete validated config plus the revision the
 caller observed. It:
 
 1. validates and canonicalizes the complete version-1 document before creating
    local state;
-2. serializes cooperating Mesh writers with a config-specific lock;
-3. rejects a stale revision instead of overwriting newer content;
-4. writes a same-directory temporary file, flushes it, and atomically renames it
+2. binds the save to the previewed workspace UUID and atomically registers the
+   canonical project path;
+3. completes any unambiguous legacy migration;
+4. serializes cooperating Mesh writers with a config-specific lock;
+5. rejects a stale revision instead of overwriting newer content;
+6. writes a same-directory temporary file, flushes it, and atomically renames it
    over `config.json`;
-5. returns the new revision and whether bytes changed.
+7. returns the new revision and whether bytes changed.
 
 Revisions are opaque API values even though the current implementation uses a
 SHA-256 digest of the exact file bytes. Callers must compare or return them, not
@@ -66,11 +109,11 @@ closed, and subscriptions move to the newly composed workspace. A reload failure
 attempts to restore the previous persisted config before resuming.
 
 The CLI exposes the same contract as a round-trip workflow. `config preview`
-produces an edit document containing the workspace identity, data directory,
-revision, and nested config. `config validate` accepts either that document or a
-raw config, while `config apply` requires the complete preview document and
-rejects a mismatched workspace or stale revision. Users edit only the nested
-`config` value.
+produces an edit document containing the workspace UUID, canonical project root,
+Mesh home, data directory, revision, and nested config. `config validate` accepts
+either that document or a raw config, while `config apply` requires the complete
+preview document and rejects a mismatched workspace, Mesh home, or stale
+revision. Users edit only the nested `config` value.
 
 The Desktop form edits all fields already present in config version 1. It binds
 each save to the preview revision, reports conflicts without closing the active

@@ -19,7 +19,8 @@ pnpm mesh config validate /tmp/mesh-config-edit.json --root /path/to/workspace
 pnpm mesh config apply /tmp/mesh-config-edit.json --root /path/to/workspace
 ```
 
-The preview document binds the edit to its workspace root, local data directory,
-and observed config revision. Applying it to another workspace or after a newer
-save is rejected. A successful changed save takes effect when the workspace is
-reopened; the command does not mutate a live `MeshWorkspace`.
+The preview document binds the edit to its stable workspace UUID, canonical
+project root, `MESH_HOME`, local data directory, and observed config revision.
+Applying it to another workspace/home or after a newer save is rejected. A
+successful changed save takes effect when the workspace is reopened; the command
+does not mutate a live `MeshWorkspace`.

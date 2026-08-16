@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 
 import {
   workspaceConfigVersion,
@@ -21,15 +21,20 @@ import {
   type WorkspaceConfigWriteResult,
 } from "@ai-mesh/application";
 
-export interface WorkspaceConfigInput {
-  readonly root: string;
-  readonly dataDirectory?: string;
+import {
+  inspectWorkspaceStorage,
+  prepareWorkspaceStorage,
+  type WorkspaceStorageInput,
+  type WorkspaceStorageLocation,
+} from "./storage.js";
+
+export interface WorkspaceConfigInput extends WorkspaceStorageInput {
   readonly config?: WorkspaceConfig;
 }
 
-export interface SaveWorkspaceConfigInput {
-  readonly root: string;
-  readonly dataDirectory?: string;
+export interface SaveWorkspaceConfigInput extends WorkspaceStorageInput {
+  /** Stable id returned by the preview the caller edited. */
+  readonly workspaceId: string;
   readonly config: WorkspaceConfig;
   /** Revision returned by the preview that the caller edited. Null means no file existed. */
   readonly expectedRevision: string | null;
@@ -59,17 +64,31 @@ export class WorkspaceConfigLockedError extends Error {
 
 /** Resolve the effective version-1 configuration without creating local state. */
 export function previewWorkspaceConfig(options: WorkspaceConfigInput): WorkspaceConfigPreview {
-  const { root, dataDirectory, configPath, databasePath } = workspaceConfigPaths(options);
+  const paths = inspectWorkspaceStorage(options);
+  const { workspaceId, root, meshHome, dataDirectory, configPath, databasePath } = paths;
+  const legacyConfigPath = join(paths.legacyDataDirectory, "config.json");
   const source: WorkspaceConfigSource =
-    options.config !== undefined ? "provided" : existsSync(configPath) ? "file" : "default";
-  const serialized = source === "file" ? readFileSync(configPath, "utf8") : undefined;
+    options.config !== undefined
+      ? "provided"
+      : existsSync(configPath)
+        ? "file"
+        : existsSync(legacyConfigPath)
+          ? "legacy"
+          : "default";
+  const serialized = source === "file"
+    ? readFileSync(configPath, "utf8")
+    : source === "legacy"
+      ? readFileSync(legacyConfigPath, "utf8")
+      : undefined;
   const config = options.config !== undefined
     ? validateWorkspaceConfig(options.config)
     : serialized === undefined
       ? defaultWorkspaceConfig()
       : parseWorkspaceConfig(serialized);
   return Object.freeze({
+    workspaceId,
     root,
+    meshHome,
     dataDirectory,
     configPath,
     databasePath,
@@ -103,10 +122,10 @@ export function serializeWorkspaceConfig(config: WorkspaceConfig): string {
  * callers must close and reopen it after a changed save.
  */
 export function saveWorkspaceConfig(options: SaveWorkspaceConfigInput): WorkspaceConfigWriteResult {
-  const paths = workspaceConfigPaths(options);
   const serialized = serializeWorkspaceConfig(options.config);
+  const paths = prepareWorkspaceStorage(options);
   const lockPath = `${paths.configPath}.lock`;
-  mkdirSync(paths.dataDirectory, { recursive: true });
+  mkdirSync(paths.dataDirectory, { recursive: true, mode: 0o700 });
 
   let lockDescriptor: number;
   try {
@@ -273,39 +292,19 @@ export function validateWorkspaceConfig(value: unknown): WorkspaceConfig {
   });
 }
 
-export function resolveWorkspaceRoot(input: string): string {
-  return isAbsolute(input) ? input : resolve(input);
-}
-
-interface WorkspaceConfigPaths {
-  readonly root: string;
-  readonly dataDirectory: string;
-  readonly configPath: string;
-  readonly databasePath: string;
-}
-
-function workspaceConfigPaths(options: {
-  readonly root: string;
-  readonly dataDirectory?: string;
-}): WorkspaceConfigPaths {
-  const root = resolve(options.root);
-  const dataDirectory = resolve(options.dataDirectory ?? join(root, ".mesh"));
-  return Object.freeze({
-    root,
-    dataDirectory,
-    configPath: join(dataDirectory, "config.json"),
-    databasePath: join(dataDirectory, "mesh.db"),
-  });
-}
-
 function configWriteResult(
-  paths: WorkspaceConfigPaths,
+  paths: WorkspaceStorageLocation,
   config: WorkspaceConfig,
   revision: string | null,
   changed: boolean,
 ): WorkspaceConfigWriteResult {
   return Object.freeze({
-    ...paths,
+    workspaceId: paths.workspaceId,
+    root: paths.root,
+    meshHome: paths.meshHome,
+    dataDirectory: paths.dataDirectory,
+    configPath: paths.configPath,
+    databasePath: paths.databasePath,
     revision,
     source: "file",
     config,

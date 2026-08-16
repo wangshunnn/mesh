@@ -50,9 +50,10 @@ Run the desktop client after Electron's platform binary has been installed:
 pnpm desktop
 ```
 
-Both clients open `.mesh/config.json` and `.mesh/mesh.db` beneath the selected
-workspace. The CLI is a headless entry point over the same runtime, not a
-separate collaboration model.
+Both clients register the selected project directory in `MESH_HOME` (default
+`~/.mesh`) and open its UUID-owned `config.json` and `mesh.db` there. The project
+directory is not modified. The CLI is a headless entry point over the same
+runtime, not a separate collaboration model.
 
 For a new-machine or new-Agent handoff, start with
 [`docs/project-status.md`](docs/project-status.md). The documentation reading

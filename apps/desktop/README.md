@@ -13,3 +13,7 @@ are serialized across configuration transitions; a changed save closes the old
 runtime and rebuilds it from the revision-checked document before publishing the
 new snapshot. The renderer can edit all current config-v1 Room and Agent fields
 without importing host-side workspace code.
+
+Desktop and CLI share the same `MESH_HOME` workspace registry. The renderer sees
+only typed projections of the stable workspace id and centralized paths; it
+never creates or reads project-local Mesh metadata directly.

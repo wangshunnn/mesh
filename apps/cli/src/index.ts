@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { MessageAttention, TaskStatus } from "@ai-mesh/protocol";
 import {
   MeshWorkspace,
+  inspectWorkspaceStorage,
   previewWorkspaceConfig,
+  resolveMeshHome,
+  resolveWorkspaceRoot,
   saveWorkspaceConfig,
   validateWorkspaceConfig,
 } from "@ai-mesh/workspace";
@@ -85,7 +88,9 @@ function configCommand(workspaceRoot: string, args: string[]): void {
   console.log(
     JSON.stringify(
       saveWorkspaceConfig({
+        workspaceId: edit.workspaceId,
         root: workspaceRoot,
+        meshHome: edit.meshHome,
         config: edit.config,
         expectedRevision: edit.revision,
       }),
@@ -111,19 +116,35 @@ function configEditDocument(
   path: string,
   workspaceRoot: string,
 ): {
+  readonly workspaceId: string;
+  readonly meshHome: string;
   readonly revision: string | null;
   readonly config: ReturnType<typeof validateWorkspaceConfig>;
 } {
   if (!isRecord(value)) {
     throw new Error(`Config edit document ${path} must be created by mesh config preview.`);
   }
-  if (typeof value.root !== "string" || resolve(value.root) !== workspaceRoot) {
+  if (
+    typeof value.root !== "string" ||
+    resolveWorkspaceRoot(value.root) !== resolveWorkspaceRoot(workspaceRoot)
+  ) {
     throw new Error(`Config edit document ${path} belongs to a different workspace.`);
   }
-  const expectedDataDirectory = resolve(join(workspaceRoot, ".mesh"));
+  if (
+    typeof value.workspaceId !== "string" ||
+    typeof value.meshHome !== "string" ||
+    resolveMeshHome(value.meshHome) !== resolveMeshHome()
+  ) {
+    throw new Error(`Config edit document ${path} belongs to a different Mesh home.`);
+  }
+  const expectedStorage = inspectWorkspaceStorage({
+    root: workspaceRoot,
+    meshHome: value.meshHome,
+    workspaceId: value.workspaceId,
+  });
   if (
     typeof value.dataDirectory !== "string" ||
-    resolve(value.dataDirectory) !== expectedDataDirectory
+    resolve(value.dataDirectory) !== expectedStorage.dataDirectory
   ) {
     throw new Error(`Config edit document ${path} has an unexpected data directory.`);
   }
@@ -131,6 +152,8 @@ function configEditDocument(
     throw new Error(`Config edit document ${path} has an invalid revision.`);
   }
   return Object.freeze({
+    workspaceId: value.workspaceId,
+    meshHome: expectedStorage.meshHome,
     revision: value.revision,
     config: validateWorkspaceConfig(value.config),
   });
@@ -338,7 +361,7 @@ function printHelp(): void {
 
 Usage: mesh <command> [--root <workspace>]
 
-  init                              create .mesh config and database
+  init                              register this directory and create local Mesh state
   config preview                    preview effective config without writing files
   config validate <file>            validate a config or preview edit document
   config apply <preview-file>       safely apply an edited config preview

@@ -36,6 +36,7 @@ import {
   saveWorkspaceConfig,
   type WorkspaceConfigInput,
 } from "./config.js";
+import { prepareWorkspaceStorage } from "./storage.js";
 
 export interface OpenWorkspaceOptions extends WorkspaceConfigInput {
   readonly persistDefaultConfig?: boolean;
@@ -61,7 +62,9 @@ export interface StartAvailableAgentsResult {
 
 /** Local composition root shared by the headless CLI and Electron main process. */
 export class MeshWorkspace {
+  readonly workspaceId: string;
   readonly root: string;
+  readonly meshHome: string;
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;
@@ -75,7 +78,9 @@ export class MeshWorkspace {
   #closed = false;
 
   private constructor(
+    workspaceId: string,
     root: string,
+    meshHome: string,
     dataDirectory: string,
     configPath: string,
     databasePath: string,
@@ -85,7 +90,9 @@ export class MeshWorkspace {
     store: SqliteStore,
     runtime: CollaborationRuntime,
   ) {
+    this.workspaceId = workspaceId;
     this.root = root;
+    this.meshHome = meshHome;
     this.dataDirectory = dataDirectory;
     this.configPath = configPath;
     this.databasePath = databasePath;
@@ -97,14 +104,27 @@ export class MeshWorkspace {
   }
 
   static open(options: OpenWorkspaceOptions): MeshWorkspace {
-    const preview = previewWorkspaceConfig(options);
-    const { root, dataDirectory, configPath, databasePath, config } = preview;
-    mkdirSync(dataDirectory, { recursive: true });
+    // Validate provided or legacy config before registering or migrating local state.
+    const initialPreview = previewWorkspaceConfig(options);
+    const storage = prepareWorkspaceStorage({
+      root: initialPreview.root,
+      meshHome: initialPreview.meshHome,
+      workspaceId: initialPreview.workspaceId,
+    });
+    const preview = previewWorkspaceConfig({
+      ...options,
+      root: storage.root,
+      meshHome: storage.meshHome,
+      workspaceId: storage.workspaceId,
+    });
+    const { workspaceId, root, meshHome, dataDirectory, configPath, databasePath, config } = preview;
+    mkdirSync(dataDirectory, { recursive: true, mode: 0o700 });
     let configRevision = preview.revision;
     if (preview.source === "default" && options.persistDefaultConfig !== false) {
       configRevision = saveWorkspaceConfig({
+        workspaceId,
         root,
-        dataDirectory,
+        meshHome,
         config,
         expectedRevision: preview.revision,
       }).revision;
@@ -119,7 +139,9 @@ export class MeshWorkspace {
       cwd: root,
     });
     const workspace = new MeshWorkspace(
+      workspaceId,
       root,
+      meshHome,
       dataDirectory,
       configPath,
       databasePath,
@@ -160,7 +182,9 @@ export class MeshWorkspace {
   configPreview(): WorkspaceConfigPreview {
     this.#assertOpen();
     return Object.freeze({
+      workspaceId: this.workspaceId,
       root: this.root,
+      meshHome: this.meshHome,
       dataDirectory: this.dataDirectory,
       configPath: this.configPath,
       databasePath: this.databasePath,

@@ -23,7 +23,6 @@ export {
   defaultWorkspaceConfig,
   parseWorkspaceConfig,
   previewWorkspaceConfig,
-  resolveWorkspaceRoot,
   saveWorkspaceConfig,
   serializeWorkspaceConfig,
   validateWorkspaceConfig,
@@ -32,6 +31,23 @@ export {
   type SaveWorkspaceConfigInput,
   type WorkspaceConfigInput,
 } from "./config.js";
+export {
+  inspectWorkspaceStorage,
+  listWorkspaceRegistrations,
+  prepareWorkspaceStorage,
+  registerWorkspace,
+  resolveMeshHome,
+  resolveWorkspaceRoot,
+  workspaceRegistryVersion,
+  WorkspaceMigrationConflictError,
+  WorkspaceMigrationLockedError,
+  WorkspaceRegistrationConflictError,
+  WorkspaceRegistryLockedError,
+  WorkspaceStorageOverlapError,
+  type WorkspaceRegistration,
+  type WorkspaceStorageInput,
+  type WorkspaceStorageLocation,
+} from "./storage.js";
 export {
   MeshWorkspace,
   type AgentProbeResult,

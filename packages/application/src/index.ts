@@ -78,11 +78,14 @@ export interface WorkspaceConfig {
   readonly agents: readonly WorkspaceAgentConfig[];
 }
 
-export type WorkspaceConfigSource = "provided" | "file" | "default";
+export type WorkspaceConfigSource = "provided" | "file" | "legacy" | "default";
 
 /** Effective, read-only local configuration projection; it carries no write policy. */
 export interface WorkspaceConfigPreview {
+  /** Stable local identity from the Mesh workspace registry. */
+  readonly workspaceId: string;
   readonly root: string;
+  readonly meshHome: string;
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;

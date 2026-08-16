@@ -23,8 +23,9 @@ against Git and the code before acting.
 - Use the `@ai-mesh` npm scope for public package design.
 - Treat CLI/runtime APIs as the headless core and the GUI as one client. A TUI is
   not currently planned.
-- Do not commit `.mesh/`; it contains machine-local configuration, SQLite state,
-  and resumable Agent session metadata.
+- New runtime state belongs below `MESH_HOME` (default `~/.mesh`), outside user
+  projects. Do not commit a legacy project-local `.mesh/`; it may contain local
+  configuration, SQLite history, and resumable Agent session metadata.
 - After a milestone changes, update both `docs/project-status.md` and
   `docs/roadmap.md` in the same change.
 

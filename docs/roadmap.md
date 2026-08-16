@@ -2,7 +2,7 @@
 
 Last updated: **2026-08-16**
 
-Starting Git baseline for the current increment: **`d8c1ea6`**
+Starting Git baseline for the current increment: **`4052d88`**
 
 Current position: **Phase 2A verified; Phase 3A headless configuration persistence is in progress**
 
@@ -176,6 +176,10 @@ safe-write contract; workspace selection and provider/model semantics remain.
 Proposed scope:
 
 - [ ] Open or create a workspace from the GUI
+- [x] Centralize machine-local workspace registration, config, and SQLite below
+  `MESH_HOME` without writing metadata into user projects
+- [x] Migrate the former project-local `.mesh/` layout without merging ambiguous
+  split histories
 - [x] View and edit versioned Room and Agent configuration safely in Desktop,
   including revision conflicts and explicit disk reload
 - [x] Configure current config-v1 adapter command, system prompt,
@@ -183,8 +187,8 @@ Proposed scope:
 - [ ] Define and configure provider/model options through the adapter contract
 - [ ] Explain command-not-found, authentication, proxy, and startup failures in UI
 - [x] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
-- [x] Preview effective configuration without writing `.mesh/config.json`
-  through the headless API, CLI, and typed desktop IPC/UI
+- [x] Preview effective configuration and centralized storage paths without
+  creating `MESH_HOME` through the headless API, CLI, and typed desktop IPC/UI
 - [x] Approve the config-v1 ownership model: portable intent, machine-local
   commands/trust, no stored credentials, and explicit reload after save
 - [x] Add canonical config-v1 parse/serialize round trips and revision-checked,
@@ -208,9 +212,9 @@ Exit gate: on a clean machine, a user can create a workspace, configure at least
 one available Agent, start it, and complete a Room conversation without manually
 editing JSON.
 
-Status: **in progress; headless, CLI, and desktop config-v1 writes are
-implemented, while workspace selection, provider/model options, and onboarding
-diagnostics remain**.
+Status: **in progress; centralized workspace ownership and headless, CLI, and
+desktop config-v1 writes are implemented, while GUI workspace selection,
+provider/model options, and onboarding diagnostics remain**.
 
 ### Phase 3B — Complete local collaboration workflows
 

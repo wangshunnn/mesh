@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,8 +9,8 @@ import { WorkspaceConfigConflictError, saveWorkspaceConfig } from "@ai-mesh/work
 import { DesktopWorkspaceHost } from "./workspace-host.js";
 
 test("desktop host reloads a changed config and keeps IPC operations on the new workspace", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mesh-desktop-host-"));
-  const host = DesktopWorkspaceHost.open(root);
+  const { root, meshHome } = hostFixture("mesh-desktop-host-");
+  const host = DesktopWorkspaceHost.open(root, { meshHome });
   const updates: string[] = [];
   const unsubscribe = host.subscribe((snapshot) => updates.push(snapshot.roomId));
   const preview = await host.run((workspace) => workspace.configPreview());
@@ -28,8 +28,8 @@ test("desktop host reloads a changed config and keeps IPC operations on the new 
 });
 
 test("desktop host rejects a stale save without losing the active workspace", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mesh-desktop-host-stale-"));
-  const host = DesktopWorkspaceHost.open(root);
+  const { root, meshHome } = hostFixture("mesh-desktop-host-stale-");
+  const host = DesktopWorkspaceHost.open(root, { meshHome });
   const preview = await host.run((workspace) => workspace.configPreview());
   const saved = await host.saveConfig({
     expectedRevision: preview.revision,
@@ -49,11 +49,13 @@ test("desktop host rejects a stale save without losing the active workspace", as
 });
 
 test("desktop host explicitly reloads a newer config written by another client", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mesh-desktop-host-reload-"));
-  const host = DesktopWorkspaceHost.open(root);
+  const { root, meshHome } = hostFixture("mesh-desktop-host-reload-");
+  const host = DesktopWorkspaceHost.open(root, { meshHome });
   const preview = await host.run((workspace) => workspace.configPreview());
   saveWorkspaceConfig({
+    workspaceId: preview.workspaceId,
     root,
+    meshHome,
     expectedRevision: preview.revision,
     config: { ...preview.config, roomId: "room:external-save" },
   });
@@ -64,3 +66,10 @@ test("desktop host explicitly reloads a newer config written by another client",
   assert.equal(await host.run((workspace) => workspace.snapshot().roomId), "room:external-save");
   await host.close();
 });
+
+function hostFixture(prefix: string): { readonly root: string; readonly meshHome: string } {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  const root = join(directory, "project");
+  mkdirSync(root);
+  return Object.freeze({ root, meshHome: join(directory, "mesh-home") });
+}

@@ -4,7 +4,7 @@ Last updated: **2026-08-16**
 
 Implementation branch: **`main`**
 
-Starting Git baseline for the current increment: **`d8c1ea6`** (`feat(config): add revision-safe workspace persistence`)
+Starting Git baseline for the current increment: **`4052d88`** (`feat(desktop): edit workspace configuration`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -26,7 +26,7 @@ Rooms do not yet exist.
 
 Phase 3A now has an approved configuration model without changing configuration
 version 1. The headless API can parse and canonically serialize all current
-fields, preview an opaque file revision without creating `.mesh/` state, and
+fields, preview an opaque file revision without creating `MESH_HOME` state, and
 persist one complete validated document through a revision-checked, serialized
 atomic replacement. Default workspace creation uses the same safe persistence
 path. A changed save deliberately requires the caller to close and reopen the
@@ -36,6 +36,14 @@ protection. Desktop now exposes the current config-v1 Room and Agent fields as a
 validated form over typed IPC; successful saves close and rebuild the workspace,
 while conflicts preserve the live composition and can explicitly reload the
 newest disk config.
+
+Machine-local workspace ownership has been moved out of user projects. CLI and
+Desktop now share a `MESH_HOME` registry (default `~/.mesh`) that maps canonical
+project paths to stable UUIDs; each UUID owns its config and SQLite database
+under `MESH_HOME/workspaces/`. Opening a new workspace does not modify the
+project or require `.gitignore`. A former project-local `.mesh/` is validated
+and moved on the first mutating open, while simultaneous legacy and centralized
+state is rejected as an explicit conflict.
 
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
@@ -56,7 +64,7 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Desktop product | Chinese local-room GUI with trajectory and editable config-v1 workspace/Agent settings; development build only |
 | CLI | Headless Room workflows plus revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
-| Persistence | Local SQLite under `.mesh/` |
+| Persistence | Machine-local registry plus per-workspace config and SQLite under `MESH_HOME` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
 | Current phase | Phase 3A local product configuration and onboarding (desktop config-v1 editing) |
@@ -115,8 +123,11 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 
 ### Persistence and observability
 
-- `.mesh/config.json` stores versioned workspace and Agent configuration.
-- `.mesh/mesh.db` stores Room events, subject versions, idempotency results,
+- `MESH_HOME/registry.json` stores stable workspace UUIDs, canonical project
+  paths, display names, and local recency metadata.
+- `MESH_HOME/workspaces/<workspace-id>/config.json` stores versioned workspace
+  and Agent configuration.
+- `MESH_HOME/workspaces/<workspace-id>/mesh.db` stores Room events, subject versions, idempotency results,
   exclusive slots, participant cursors, and the diagnostic trace journal.
 - Presence and turn receipts are shared Room facts.
 - Candidate text, tool events, lifecycle timing, dirty detection, expired drafts,
@@ -150,8 +161,9 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
   transport-neutral client contract; it contains no host implementation.
 - `@ai-mesh/workspace` resolves config and composes SQLite, registered adapter
   providers, and collaboration runtime. Its headless config API exposes
-  canonical version-1 parse/serialize, opaque revisions, stale-write rejection,
-  and atomic whole-document persistence.
+  a side-effect-free centralized path preview, canonical version-1
+  parse/serialize, workspace registration, legacy migration, opaque revisions,
+  stale-write rejection, and atomic whole-document persistence.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
   a side-effect-free effective-config preview, config validation and safe apply,
   and a real-Agent demo.
@@ -229,6 +241,16 @@ workspace and non-null revision, and then checks 1440×900 and 1040×680 layouts
 without renderer warnings, errors, or horizontal overflow. Captured screenshots
 at both sizes were visually checked for usable controls, cards, paths, and scroll.
 
+The centralized `MESH_HOME` workspace-storage increment passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-16. Twelve workspace tests cover
+side-effect-free preview, stable UUID registration, same-name project roots,
+centralized config and Room persistence, legacy history migration, split-store
+rejection, and overlapping-path protection. Four CLI tests and nineteen Desktop
+tests run against isolated machine-level homes. Electron smoke also confirms that
+opening and editing a workspace creates no project-local `.mesh/`; visual QA at
+1440×900 and 1040×680 found no clipping, horizontal overflow, or unusable path
+and configuration controls.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
@@ -237,7 +259,9 @@ These are current boundaries, not regressions:
    UI/runtime surface one default `thread:general`. Multi-Room and multi-thread
    navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
-   metadata live under ignored `.mesh/`; they do not sync through Git.
+   metadata live below `MESH_HOME`; they do not sync through Git. Moving a
+   project directory still requires an explicit future rebind flow because the
+   registry intentionally does not place an identity marker in the project.
 3. **Incomplete onboarding configuration.** Desktop can edit existing config-v1
    Room and Agent fields, but it cannot choose/create another workspace, add or
    remove Agent entries, or select provider/model options. Authentication and
@@ -270,11 +294,12 @@ git log --oneline -5
 git status --short
 ```
 
-Do not commit `.mesh/`. If the exact Room history is required, transfer that
-directory separately through a trusted channel after closing Mesh. It may contain
-machine-specific commands, local paths, conversation history, and resumable
-vendor session identifiers. A fresh `.mesh/` is safer when only development
-context—not runtime conversation state—must move.
+If the exact Room history is required, transfer the selected workspace directory
+from `MESH_HOME/workspaces/` plus the necessary registry binding through a
+trusted channel after closing Mesh. It may contain machine-specific commands,
+local paths, conversation history, and resumable vendor session identifiers.
+A fresh registration is safer when only development context—not runtime
+conversation state—must move. Never commit a legacy project-local `.mesh/`.
 
 ### 2. Restore the toolchain
 
@@ -322,7 +347,8 @@ Ask the Agent to read `AGENTS.md`, then this file, `roadmap.md`, and
 `architecture.md` before proposing changes. It should report:
 
 - the checked-out Git baseline;
-- whether `.mesh/config.json` already exists;
+- the effective `MESH_HOME`, workspace UUID, and whether a legacy project-local
+  `.mesh/` needs migration;
 - which configured Agent commands are available;
 - whether `pnpm verify` passes;
 - which roadmap phase it intends to enter and why its entry criteria are met.
