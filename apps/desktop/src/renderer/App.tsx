@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import type { RoomSnapshot } from "@ai-mesh/workspace";
+import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/workspace";
 import {
   CoreAction,
   type RoomEvent,
@@ -294,11 +294,42 @@ const previewSnapshot: RoomSnapshot = Object.freeze({
   ]),
 });
 
-type WorkspaceView = "room" | "trajectory";
+const previewConfig: WorkspaceConfigPreview = Object.freeze({
+  root: "/workspace/mesh",
+  dataDirectory: "/workspace/mesh/.mesh",
+  configPath: "/workspace/mesh/.mesh/config.json",
+  databasePath: "/workspace/mesh/.mesh/mesh.db",
+  source: "file",
+  config: Object.freeze({
+    version: 1,
+    roomId: "room:mesh-preview",
+    agents: Object.freeze([
+      Object.freeze({
+        id: "agent:opencode",
+        name: "OpenCode",
+        handle: "opencode",
+        adapter: "opencode-acp",
+        permissionPolicy: "deny",
+        respondToTeam: true,
+      }),
+      Object.freeze({
+        id: "agent:codex",
+        name: "Codex",
+        handle: "codex",
+        adapter: "codex-native",
+        permissionPolicy: "deny",
+        respondToTeam: true,
+      }),
+    ]),
+  }),
+});
+
+type WorkspaceView = "room" | "trajectory" | "configuration";
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<RoomSnapshot>(emptySnapshot);
   const [probes, setProbes] = useState<readonly DesktopAgentProbe[]>([]);
+  const [configPreview, setConfigPreview] = useState<WorkspaceConfigPreview | undefined>();
   const [view, setView] = useState<WorkspaceView>("room");
   const [busy, setBusy] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -312,15 +343,21 @@ export function App(): React.JSX.Element {
         { id: "agent:opencode", available: true, version: "1.18.16" },
         { id: "agent:codex", available: true, version: "0.146.0" },
       ]);
+      setConfigPreview(previewConfig);
       return () => {
         live = false;
       };
     }
-    void Promise.all([window.mesh.snapshot(), window.mesh.probeAgents()])
-      .then(([initial, availability]) => {
+    void Promise.all([
+      window.mesh.snapshot(),
+      window.mesh.probeAgents(),
+      window.mesh.configPreview(),
+    ])
+      .then(([initial, availability, configuration]) => {
         if (live) {
           setSnapshot(initial);
           setProbes(availability);
+          setConfigPreview(configuration);
         }
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
@@ -365,7 +402,7 @@ export function App(): React.JSX.Element {
           <button type="button" onClick={() => setError(undefined)}>关闭</button>
         </div>
       )}
-      <div className={`workspace-grid ${view === "trajectory" ? "trajectory-mode" : ""}`}>
+      <div className={`workspace-grid ${view === "room" ? "" : `${view}-mode`}`}>
         <AgentRail snapshot={snapshot} probes={probes} busy={busy} invoke={invoke} />
         {view === "room" ? (
           <>
@@ -393,7 +430,11 @@ export function App(): React.JSX.Element {
             <TaskPanel snapshot={snapshot} busy={busy} invoke={invoke} />
             </aside>
           </>
-        ) : <TrajectoryView snapshot={snapshot} />}
+        ) : view === "trajectory" ? (
+          <TrajectoryView snapshot={snapshot} />
+        ) : (
+          <ConfigurationView preview={configPreview} probes={probes} />
+        )}
       </div>
     </main>
   );
@@ -430,6 +471,11 @@ function Header({ snapshot, busy, invoke, view, onViewChange }: HeaderProps): Re
           className={view === "trajectory" ? "active" : ""}
           onClick={() => onViewChange("trajectory")}
         >运行轨迹 <span>{snapshot.trace.length}</span></button>
+        <button
+          type="button"
+          className={view === "configuration" ? "active" : ""}
+          onClick={() => onViewChange("configuration")}
+        >配置</button>
       </nav>
       <div className="topbar-actions">
         <span className="room-id" title={snapshot.roomId}>{snapshot.roomId}</span>
@@ -444,6 +490,101 @@ function Header({ snapshot, busy, invoke, view, onViewChange }: HeaderProps): Re
         </button>
       </div>
     </header>
+  );
+}
+
+function ConfigurationView({
+  preview,
+  probes,
+}: {
+  readonly preview: WorkspaceConfigPreview | undefined;
+  readonly probes: readonly DesktopAgentProbe[];
+}): React.JSX.Element {
+  const availability = useMemo(() => new Map(probes.map((probe) => [probe.id, probe])), [probes]);
+  if (preview === undefined) {
+    return (
+      <section className="configuration-view configuration-loading">
+        <strong>正在读取有效配置…</strong>
+      </section>
+    );
+  }
+  return (
+    <section className="configuration-view">
+      <header className="configuration-heading">
+        <div>
+          <div className="configuration-title-row">
+            <h1>工作区配置</h1>
+            <span className="readonly-pill">只读预览</span>
+          </div>
+          <p>展示当前进程实际加载的配置与本地路径，不会修改 <code>config.json</code>。</p>
+        </div>
+        <div className="configuration-version">
+          <span>SCHEMA</span>
+          <strong>v{preview.config.version}</strong>
+        </div>
+      </header>
+      <div className="configuration-scroll">
+        <section className="configuration-callout">
+          <div>
+            <span className="eyebrow">本次加载来源</span>
+            <strong>{configurationSourceLabel(preview.source)}</strong>
+            <p>配置编辑与保存会在确定便携配置、机器本地凭据和迁移边界后接入。</p>
+          </div>
+          <span className={`source-badge ${preview.source}`}>{preview.source}</span>
+        </section>
+
+        <section className="configuration-section">
+          <div className="configuration-section-heading">
+            <div><span className="eyebrow">WORKSPACE</span><h2>工作区与存储</h2></div>
+            <code>{preview.config.roomId}</code>
+          </div>
+          <dl className="configuration-paths">
+            <div><dt>项目根目录</dt><dd><code title={preview.root}>{preview.root}</code></dd></div>
+            <div><dt>Mesh 数据目录</dt><dd><code title={preview.dataDirectory}>{preview.dataDirectory}</code></dd></div>
+            <div><dt>配置文件</dt><dd><code title={preview.configPath}>{preview.configPath}</code></dd></div>
+            <div><dt>SQLite 数据库</dt><dd><code title={preview.databasePath}>{preview.databasePath}</code></dd></div>
+          </dl>
+        </section>
+
+        <section className="configuration-section">
+          <div className="configuration-section-heading">
+            <div><span className="eyebrow">AGENTS</span><h2>Agent 运行配置</h2></div>
+            <span>{preview.config.agents.length} 个 Agent</span>
+          </div>
+          <div className="configuration-agents">
+            {preview.config.agents.map((agent) => {
+              const probe = availability.get(agent.id);
+              const command = agent.command ?? (agent.adapter === "opencode-acp" ? "opencode" : "codex");
+              return (
+                <article className={`configuration-agent avatar-${agent.handle.slice(0, 1)}`} key={agent.id}>
+                  <header>
+                    <div className="configuration-agent-avatar">{agent.name.slice(0, 1)}</div>
+                    <div>
+                      <strong>{agent.name}</strong>
+                      <span>@{agent.handle} · {agent.id}</span>
+                    </div>
+                    <span className={`availability-badge ${probe === undefined ? "checking" : probe.available ? "available" : "unavailable"}`}>
+                      {probe === undefined ? "检测中" : probe.available ? "可用" : "不可用"}
+                    </span>
+                  </header>
+                  <dl className="configuration-agent-facts">
+                    <div><dt>适配器</dt><dd><code>{agent.adapter}</code></dd></div>
+                    <div><dt>命令</dt><dd><code>{command}</code>{agent.command === undefined ? <small>默认</small> : null}</dd></div>
+                    <div><dt>权限策略</dt><dd>{permissionPolicyLabel(agent.permissionPolicy ?? "deny")}</dd></div>
+                    <div><dt>响应全体消息</dt><dd>{agent.respondToTeam === true ? "是" : "否"}</dd></div>
+                  </dl>
+                  <div className="configuration-prompt">
+                    <span>系统提示词</span>
+                    <p>{agent.systemPrompt ?? "未覆盖，使用 Mesh 运行时默认提示。"}</p>
+                  </div>
+                  {probe?.reason === undefined ? null : <p className="configuration-agent-error">{probe.reason}</p>}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -733,6 +874,24 @@ function presenceLabel(state: string): string {
     error: "异常",
   };
   return labels[state] ?? state;
+}
+
+function configurationSourceLabel(source: WorkspaceConfigPreview["source"]): string {
+  const labels: Readonly<Record<WorkspaceConfigPreview["source"], string>> = {
+    default: "内置默认配置",
+    file: "工作区配置文件",
+    provided: "启动时提供的配置",
+  };
+  return labels[source];
+}
+
+function permissionPolicyLabel(policy: "deny" | "allow-once" | "allow-always"): string {
+  const labels = {
+    deny: "拒绝工具权限",
+    "allow-once": "单次允许",
+    "allow-always": "始终允许",
+  } as const;
+  return labels[policy];
 }
 
 function formatClock(timestamp: number): string {

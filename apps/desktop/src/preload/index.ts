@@ -8,6 +8,8 @@ import {
 
 const api: DesktopApi = Object.freeze({
   snapshot: () => ipcRenderer.invoke(desktopChannels.snapshot) as Promise<Awaited<ReturnType<DesktopApi["snapshot"]>>>,
+  configPreview: () =>
+    ipcRenderer.invoke(desktopChannels.configPreview) as Promise<Awaited<ReturnType<DesktopApi["configPreview"]>>>,
   postMessage: (input: Parameters<DesktopApi["postMessage"]>[0]) =>
     ipcRenderer.invoke(desktopChannels.postMessage, input) as Promise<Awaited<ReturnType<DesktopApi["postMessage"]>>>,
   createTask: (input: Parameters<DesktopApi["createTask"]>[0]) =>

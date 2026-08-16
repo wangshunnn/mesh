@@ -26,20 +26,22 @@ and remote multi-machine Rooms do not yet exist.
 Phase 3A enabling work has started without changing configuration version 1: the
 root `pnpm mesh ...` entry point is repaired and covered by a smoke check, and a
 headless effective-config preview can inspect defaults or an existing config
-without creating `.mesh/` state. The Phase 3A product configuration entry gate
-remains open.
+without creating `.mesh/` state. The same effective snapshot now crosses typed
+Electron IPC into a read-only desktop configuration view showing its source,
+workspace paths, and resolved Room/Agent values. The Phase 3A product
+configuration entry gate remains open; no write model has been selected.
 
 | Area | Current state |
 | --- | --- |
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
-| Desktop product | Chinese local-room GUI; development build only |
+| Desktop product | Chinese local-room GUI with trajectory and read-only configuration views; development build only |
 | CLI | Built headless workspace entry point with a verified root `pnpm mesh` shortcut |
 | Persistence | Local SQLite under `.mesh/` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
-| Recommended next phase | Phase 3A local product configuration and onboarding |
+| Current phase | Phase 3A local product configuration and onboarding (read-only boundary) |
 | Phase 2B cancellation | Gated on trace evidence; not the default next step |
 
 ## Implemented behavior
@@ -130,7 +132,7 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
   a side-effect-free effective-config preview, and a real-Agent demo.
 - `@ai-mesh/desktop` exposes the same workspace through typed Electron IPC and a
-  React GUI.
+  React GUI, including a read-only projection of the effective workspace config.
 - The Electron renderer is sandboxed with context isolation and no Node
   integration.
 
@@ -161,6 +163,11 @@ Codex turn and is not reported as a trace gap. A 107-minute local history with
 25 Room messages and 20 Agent turns was also checked on the idle-compressed
 wall-clock scale: global idle gaps collapse, Agent elapsed-time ratios remain
 intact, and Room labels stay vertically aligned with their timestamp anchors.
+The Phase 3A read-only desktop configuration projection passed the full
+`pnpm verify` suite and Electron smoke coverage. The smoke opens the typed IPC
+projection, navigates to the configuration view, and checks 1440×900 and the
+minimum 1040×680 viewport for horizontal overflow and usable Agent-card widths;
+browser inspection at 1280×720 reported no console warnings or errors.
 
 ## Known limitations
 
@@ -171,9 +178,10 @@ These are current boundaries, not regressions:
    navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live under ignored `.mesh/`; they do not sync through Git.
-3. **Manual configuration.** Agent commands, permission policies, prompts, and
-   response-to-team behavior require editing `.mesh/config.json`; the GUI has no
-   Agent/provider/model settings yet.
+3. **Manual configuration.** The GUI can inspect effective Agent commands,
+   permission policies, prompts, and response-to-team behavior, but changing
+   them still requires editing `.mesh/config.json`; provider/model settings and
+   safe GUI persistence are not defined yet.
 4. **Two production adapter kinds.** Workspace validation currently accepts only
    `opencode-acp` and `codex-native`; there is no external adapter registry.
 5. **Development distribution only.** There is no signed installer, release

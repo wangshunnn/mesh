@@ -4,7 +4,7 @@ Last updated: **2026-08-16**
 
 Current implementation baseline: **`08f15de`**
 
-Current position: **Phase 2A verified; Phase 3A is the recommended next phase**
+Current position: **Phase 2A verified; Phase 3A read-only enabling work is in progress**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -30,7 +30,7 @@ feature wishlist.
 | Phase 1 — Real collaboration vertical slice | Verified | `31ef73c`, `72c4061` | SQLite, real adapters, CLI, Chinese Electron GUI |
 | Phase 2A — Candidate reconciliation | Verified | `08f15de` | Bounded keep/patch/regenerate/drop against live Room state |
 | Phase 2B — Explicit hard invalidation | Gated | — | Cancel only provably superseded work |
-| Phase 3 — Local product MVP | Proposed | — | Onboarding, configuration, complete local workflows, packaging |
+| Phase 3 — Local product MVP | In progress (3A enabling) | — | Onboarding, configuration, complete local workflows, packaging |
 | Phase 4 — Community SDK | Proposed | — | Stable public `@ai-mesh` packages and external adapters |
 | Phase 5 — Remote Rooms | Proposed | — | Secure multi-machine collaboration |
 
@@ -169,7 +169,8 @@ configure, understand, and run without editing implementation files.
 
 ### Phase 3A — Workspace, Agent, and model configuration
 
-Recommended next phase.
+Current phase. Read-only inspection and headless foundations may proceed while
+configuration persistence remains behind the entry gate.
 
 Proposed scope:
 
@@ -179,7 +180,8 @@ Proposed scope:
   `respondToTeam`, and permission policy
 - [ ] Explain command-not-found, authentication, proxy, and startup failures in UI
 - [x] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
-- [x] Preview effective configuration before writing `.mesh/config.json`
+- [x] Preview effective configuration without writing `.mesh/config.json`
+  through the headless API, CLI, and typed desktop IPC/UI
 - [ ] Preserve a headless API for the same operations
 - [ ] Add config migration and round-trip tests before changing config version 1
 
@@ -190,7 +192,7 @@ Exit gate: on a clean machine, a user can create a workspace, configure at least
 one available Agent, start it, and complete a Room conversation without manually
 editing JSON.
 
-Status: **proposed; recommended next**.
+Status: **in progress at the read-only boundary; configuration writes remain gated**.
 
 ### Phase 3B — Complete local collaboration workflows
 

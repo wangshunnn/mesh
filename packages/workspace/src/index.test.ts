@@ -26,10 +26,13 @@ test("opening a workspace creates reusable local configuration and SQLite state"
   const first = MeshWorkspace.open({ root });
   assert.equal(existsSync(first.configPath), true);
   assert.equal(existsSync(first.databasePath), true);
+  assert.equal(first.configPreview().source, "default");
+  assert.equal(first.configPreview().root, root);
   first.postText("persistent", { idempotencyKey: "persistent" });
   await first.close();
 
   const reopened = MeshWorkspace.open({ root });
+  assert.equal(reopened.configPreview().source, "file");
   assert.equal(reopened.snapshot().messages[0]?.text, "persistent");
   assert.equal(JSON.parse(readFileSync(reopened.configPath, "utf8")).version, 1);
   await reopened.close();

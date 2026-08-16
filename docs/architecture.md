@@ -109,6 +109,11 @@ collaboration runtime. Both entry points use that service:
 - `@ai-mesh/cli` exposes headless/npm workflows and automation primitives;
 - `@ai-mesh/desktop` exposes the same room through typed Electron IPC and React.
 
+Effective configuration is also projected by `@ai-mesh/workspace`. The CLI and
+Electron main process consume that projection; the sandboxed renderer never
+reads `.mesh/config.json` or workspace paths directly. Read-only inspection does
+not imply or define future configuration write, credential, or migration policy.
+
 The GUI is therefore one client of the collaboration core. Closing it does not
 define or erase the room protocol.
 

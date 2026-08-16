@@ -82,6 +82,7 @@ function createWindow(): BrowserWindow {
 
 function registerIpc(activeWorkspace: MeshWorkspace): void {
   ipcMain.handle(desktopChannels.snapshot, () => activeWorkspace.snapshot());
+  ipcMain.handle(desktopChannels.configPreview, () => activeWorkspace.configPreview());
   ipcMain.handle(
     desktopChannels.postMessage,
     async (_event, input: { readonly text: string; readonly to?: string }) => {

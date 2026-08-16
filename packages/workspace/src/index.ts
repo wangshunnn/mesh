@@ -94,6 +94,7 @@ export class MeshWorkspace {
   readonly dataDirectory: string;
   readonly configPath: string;
   readonly databasePath: string;
+  readonly configSource: WorkspaceConfigSource;
   readonly config: WorkspaceConfig;
   readonly runtime: CollaborationRuntime;
 
@@ -106,6 +107,7 @@ export class MeshWorkspace {
     dataDirectory: string,
     configPath: string,
     databasePath: string,
+    configSource: WorkspaceConfigSource,
     config: WorkspaceConfig,
     store: SqliteStore,
     runtime: CollaborationRuntime,
@@ -114,6 +116,7 @@ export class MeshWorkspace {
     this.dataDirectory = dataDirectory;
     this.configPath = configPath;
     this.databasePath = databasePath;
+    this.configSource = configSource;
     this.config = config;
     this.#store = store;
     this.runtime = runtime;
@@ -140,6 +143,7 @@ export class MeshWorkspace {
       dataDirectory,
       configPath,
       databasePath,
+      preview.source,
       config,
       store,
       runtime,
@@ -169,6 +173,18 @@ export class MeshWorkspace {
   snapshot(): RoomSnapshot {
     this.#assertOpen();
     return this.runtime.snapshot();
+  }
+
+  configPreview(): WorkspaceConfigPreview {
+    this.#assertOpen();
+    return Object.freeze({
+      root: this.root,
+      dataDirectory: this.dataDirectory,
+      configPath: this.configPath,
+      databasePath: this.databasePath,
+      source: this.configSource,
+      config: this.config,
+    });
   }
 
   subscribe(listener: SnapshotListener): Unsubscribe {

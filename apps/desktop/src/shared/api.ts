@@ -1,4 +1,4 @@
-import type { RoomSnapshot } from "@ai-mesh/workspace";
+import type { RoomSnapshot, WorkspaceConfigPreview } from "@ai-mesh/workspace";
 import type { TaskStatus } from "@ai-mesh/protocol";
 
 export type AgentAction = "start" | "stop" | "restart" | "wake";
@@ -12,6 +12,7 @@ export interface DesktopAgentProbe {
 
 export interface DesktopApi {
   snapshot(): Promise<RoomSnapshot>;
+  configPreview(): Promise<WorkspaceConfigPreview>;
   postMessage(input: { readonly text: string; readonly to?: string }): Promise<RoomSnapshot>;
   createTask(input: { readonly title: string; readonly description?: string }): Promise<RoomSnapshot>;
   claimTask(input: { readonly taskId: string; readonly ownerId: string }): Promise<RoomSnapshot>;
@@ -24,6 +25,7 @@ export interface DesktopApi {
 
 export const desktopChannels = Object.freeze({
   snapshot: "mesh:snapshot",
+  configPreview: "mesh:config-preview",
   snapshotUpdated: "mesh:snapshot-updated",
   postMessage: "mesh:post-message",
   createTask: "mesh:create-task",
