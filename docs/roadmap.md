@@ -2,9 +2,9 @@
 
 Last updated: **2026-08-17**
 
-Starting Git baseline for the current increment: **`512a401`**
+Starting Git baseline for the next increment: **`739fa32`**
 
-Current position: **Phase 2A verified; Phase 3A session-first local persistence is in progress**
+Current position: **Phase 2A verified; Phase 3A session-first persistence is verified and GUI workspace/session navigation is next**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -30,7 +30,7 @@ feature wishlist.
 | Phase 1 — Real collaboration vertical slice | Verified | `31ef73c`, `72c4061` | SQLite, real adapters, CLI, Chinese Electron GUI |
 | Phase 2A — Candidate reconciliation | Verified | `08f15de` | Bounded keep/patch/regenerate/drop against live Room state |
 | Phase 2B — Explicit hard invalidation | Gated | — | Cancel only provably superseded work |
-| Phase 3 — Local product MVP | In progress (3A enabling) | — | Onboarding, configuration, complete local workflows, packaging |
+| Phase 3 — Local product MVP | In progress (3A enabling) | `739fa32` | Session-first persistence verified; GUI navigation and onboarding next |
 | Phase 4 — Community SDK | Proposed | — | Stable public `@ai-mesh` packages and external adapters |
 | Phase 5 — Remote Rooms | Proposed | — | Secure multi-machine collaboration |
 
@@ -225,6 +225,22 @@ Status: **in progress; session-first workspace ownership plus headless and CLI
 session operations and desktop config-v1 writes are implemented, while GUI
 workspace/session selection, provider/model options, and onboarding diagnostics
 remain**.
+
+#### Next increment — GUI workspace and session navigation
+
+Status: **planned from verified baseline `739fa32`**.
+
+- [ ] Define browser-safe workspace/session summaries and client operations
+- [ ] Add typed IPC for catalog list, new session, and explicit session switch
+- [ ] Add native project-directory selection without writing into the project
+- [ ] Build a DSH/Codex-inspired project-grouped session sidebar
+- [ ] Show derived title, preview, recency, active state, and corrupt/missing state
+- [ ] Preserve serialized host replacement when switching the active session
+- [ ] Test that session switching never merges or reorders canonical histories
+- [ ] Extend Electron smoke and 1440×900 / 1040×680 visual QA for the new shell
+
+This increment does not introduce provider/model schema changes, Agent-list
+mutation, multi-Room/thread navigation, or a central speaker scheduler.
 
 ### Phase 3B — Complete local collaboration workflows
 

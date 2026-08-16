@@ -4,7 +4,7 @@ Last updated: **2026-08-17**
 
 Implementation branch: **`main`**
 
-Starting Git baseline for the current increment: **`512a401`** (`refactor(workspace): centralize local state under MESH_HOME`)
+Verified implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -63,13 +63,13 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
-| Desktop product | Chinese local-room GUI with trajectory and editable config-v1 workspace/Agent settings; development build only |
+| Desktop product | Chinese local-room GUI with trajectory and editable per-session config-v1/Agent settings; workspace/session chooser not yet implemented |
 | CLI | Headless Room workflows, session list/new/select, and revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Machine-local workspace catalog plus isolated per-session config and SQLite under `MESH_HOME` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
-| Current phase | Phase 3A local product configuration and onboarding (desktop config-v1 editing) |
+| Current phase | Phase 3A local product configuration and onboarding (GUI workspace/session navigation next) |
 | Phase 2B cancellation | Gated on trace evidence; not the default next step |
 
 ## Implemented behavior
@@ -301,6 +301,31 @@ These are current boundaries, not regressions:
     planning, dependency graphs, scheduling, and artifact review workflows do not.
 9. **No trace lifecycle policy.** Filtering, export, retention, pruning, and
     performance telemetry are not implemented.
+
+## Next recommended development
+
+The next Phase 3A increment is GUI workspace and session navigation, building on
+the verified `739fa32` storage contract. Keep the Desktop renderer as a client of
+browser-safe application projections; it must not read `MESH_HOME` directly.
+
+Implement the increment in this order:
+
+1. add browser-safe workspace and session summary projections plus typed client
+   operations for catalog listing, session creation, and explicit selection;
+2. expose those operations through Electron main/preload IPC while preserving
+   the current host's serialized close-and-reopen boundary;
+3. replace the fixed single-workspace shell with a restrained DSH/Codex-inspired
+   sidebar: project groups, ordered session titles/previews, active state, and a
+   clear new-session action;
+4. add a native project-directory chooser and explicit states for missing roots,
+   corrupt/missing session headers, empty catalogs, loading, and selection errors;
+5. verify that switching never merges Room histories, opening an existing
+   session does not reorder it, and creating a session prepends only the new ID;
+6. extend Electron smoke and visual QA for workspace/session creation and
+   switching at 1440×900 and 1040×680.
+
+Provider/model configuration, Agent-list mutation, multi-Room/thread semantics,
+and Phase 2B cancellation remain outside this increment.
 
 ## Resume on another computer
 
