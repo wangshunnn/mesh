@@ -4,7 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { MeshWorkspace, defaultWorkspaceConfig, validateWorkspaceConfig } from "./index.js";
+import {
+  MeshWorkspace,
+  defaultWorkspaceConfig,
+  previewWorkspaceConfig,
+  validateWorkspaceConfig,
+} from "./index.js";
+
+test("previewing a default workspace config has no filesystem side effects", () => {
+  const root = mkdtempSync(join(tmpdir(), "mesh-workspace-preview-"));
+  const preview = previewWorkspaceConfig({ root });
+
+  assert.equal(preview.source, "default");
+  assert.equal(preview.config.version, 1);
+  assert.equal(preview.config.agents.length, 2);
+  assert.equal(existsSync(join(root, ".mesh")), false);
+});
 
 test("opening a workspace creates reusable local configuration and SQLite state", async () => {
   const root = mkdtempSync(join(tmpdir(), "mesh-workspace-"));

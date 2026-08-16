@@ -31,14 +31,14 @@ Initialize and inspect a workspace through the CLI:
 
 ```bash
 pnpm build
-node apps/cli/dist/index.js init
-node apps/cli/dist/index.js agents
-node apps/cli/dist/index.js message --to codex "Review the current room state"
-node apps/cli/dist/index.js timeline
+pnpm mesh config preview
+pnpm mesh init
+pnpm mesh agents
+pnpm mesh message --to codex "Review the current room state"
+pnpm mesh timeline
 ```
 
-The intended `pnpm mesh ...` convenience script is currently broken under pnpm
-11; use the built CLI entry above until the roadmap item is fixed.
+Run `pnpm smoke:cli` to verify the root CLI shortcut independently.
 
 Run the desktop client after Electron's platform binary has been installed:
 

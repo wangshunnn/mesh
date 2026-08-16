@@ -61,6 +61,17 @@ export interface OpenWorkspaceOptions {
   readonly persistDefaultConfig?: boolean;
 }
 
+export type WorkspaceConfigSource = "provided" | "file" | "default";
+
+export interface WorkspaceConfigPreview {
+  readonly root: string;
+  readonly dataDirectory: string;
+  readonly configPath: string;
+  readonly databasePath: string;
+  readonly source: WorkspaceConfigSource;
+  readonly config: WorkspaceConfig;
+}
+
 export interface AgentProbeResult {
   readonly id: ParticipantId;
   readonly name: string;
@@ -109,22 +120,11 @@ export class MeshWorkspace {
   }
 
   static open(options: OpenWorkspaceOptions): MeshWorkspace {
-    const root = resolve(options.root);
-    const dataDirectory = resolve(options.dataDirectory ?? join(root, ".mesh"));
-    const configPath = join(dataDirectory, "config.json");
-    const databasePath = join(dataDirectory, "mesh.db");
+    const preview = previewWorkspaceConfig(options);
+    const { root, dataDirectory, configPath, databasePath, config } = preview;
     mkdirSync(dataDirectory, { recursive: true });
-
-    let config: WorkspaceConfig;
-    if (options.config !== undefined) {
-      config = validateWorkspaceConfig(options.config);
-    } else if (existsSync(configPath)) {
-      config = validateWorkspaceConfig(JSON.parse(readFileSync(configPath, "utf8")));
-    } else {
-      config = defaultWorkspaceConfig();
-      if (options.persistDefaultConfig !== false) {
-        writeFileSync(configPath, `${JSON.stringify(config, undefined, 2)}\n`, "utf8");
-      }
+    if (preview.source === "default" && options.persistDefaultConfig !== false) {
+      writeFileSync(configPath, `${JSON.stringify(config, undefined, 2)}\n`, "utf8");
     }
 
     const store = new SqliteStore(databasePath);
@@ -342,6 +342,31 @@ export class MeshWorkspace {
       throw new Error("Mesh workspace is closed.");
     }
   }
+}
+
+export function previewWorkspaceConfig(
+  options: Pick<OpenWorkspaceOptions, "root" | "dataDirectory" | "config">,
+): WorkspaceConfigPreview {
+  const root = resolve(options.root);
+  const dataDirectory = resolve(options.dataDirectory ?? join(root, ".mesh"));
+  const configPath = join(dataDirectory, "config.json");
+  const databasePath = join(dataDirectory, "mesh.db");
+  const source: WorkspaceConfigSource =
+    options.config !== undefined ? "provided" : existsSync(configPath) ? "file" : "default";
+  const config =
+    options.config !== undefined
+      ? validateWorkspaceConfig(options.config)
+      : source === "file"
+        ? validateWorkspaceConfig(JSON.parse(readFileSync(configPath, "utf8")))
+        : defaultWorkspaceConfig();
+  return Object.freeze({
+    root,
+    dataDirectory,
+    configPath,
+    databasePath,
+    source,
+    config,
+  });
 }
 
 export function defaultWorkspaceConfig(): WorkspaceConfig {

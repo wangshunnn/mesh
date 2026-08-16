@@ -1,6 +1,6 @@
 # Mesh implementation roadmap
 
-Last updated: **2026-08-14**
+Last updated: **2026-08-16**
 
 Current implementation baseline: **`08f15de`**
 
@@ -174,8 +174,8 @@ Proposed scope:
 - [ ] Configure adapter command, provider/model options, system prompt,
   `respondToTeam`, and permission policy
 - [ ] Explain command-not-found, authentication, proxy, and startup failures in UI
-- [ ] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
-- [ ] Preview effective configuration before writing `.mesh/config.json`
+- [x] Repair the root `pnpm mesh ...` shortcut under pnpm 11 and add a smoke test
+- [x] Preview effective configuration before writing `.mesh/config.json`
 - [ ] Preserve a headless API for the same operations
 - [ ] Add config migration and round-trip tests before changing config version 1
 

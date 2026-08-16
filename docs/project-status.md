@@ -1,6 +1,6 @@
 # Mesh project status
 
-Last updated: **2026-08-14**
+Last updated: **2026-08-16**
 
 Implementation branch: **`main`**
 
@@ -23,13 +23,19 @@ Electron GUI, developer trace, and bounded candidate reconciliation exist. Clean
 machine onboarding, GUI configuration, packaged releases, a stable public SDK,
 and remote multi-machine Rooms do not yet exist.
 
+Phase 3A enabling work has started without changing configuration version 1: the
+root `pnpm mesh ...` entry point is repaired and covered by a smoke check, and a
+headless effective-config preview can inspect defaults or an existing config
+without creating `.mesh/` state. The Phase 3A product configuration entry gate
+remains open.
+
 | Area | Current state |
 | --- | --- |
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
 | Desktop product | Chinese local-room GUI; development build only |
-| CLI | Built headless workspace entry point; root `pnpm mesh` shortcut currently broken |
+| CLI | Built headless workspace entry point with a verified root `pnpm mesh` shortcut |
 | Persistence | Local SQLite under `.mesh/` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
@@ -104,7 +110,7 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
 
 - `@ai-mesh/workspace` composes config, SQLite, adapters, and collaboration runtime.
 - `@ai-mesh/cli` exposes init, status, Agent lifecycle, messages, tasks, timeline,
-  and a real-Agent demo.
+  a side-effect-free effective-config preview, and a real-Agent demo.
 - `@ai-mesh/desktop` exposes the same workspace through typed Electron IPC and a
   React GUI.
 - The Electron renderer is sandboxed with context isolation and no Node
@@ -136,36 +142,30 @@ These are current boundaries, not regressions:
    navigation are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live under ignored `.mesh/`; they do not sync through Git.
-3. **No Git remote in this checkout.** At this snapshot, `git remote -v` is empty.
-   Commits and these documents must be pushed to a configured remote before
-   another computer can clone them.
-4. **Manual configuration.** Agent commands, permission policies, prompts, and
+3. **Manual configuration.** Agent commands, permission policies, prompts, and
    response-to-team behavior require editing `.mesh/config.json`; the GUI has no
    Agent/provider/model settings yet.
-5. **Two production adapter kinds.** Workspace validation currently accepts only
+4. **Two production adapter kinds.** Workspace validation currently accepts only
    `opencode-acp` and `codex-native`; there is no external adapter registry.
-6. **Development distribution only.** There is no signed installer, release
+5. **Development distribution only.** There is no signed installer, release
    channel, auto-update flow, or published `@ai-mesh/*` package.
-7. **Broken root CLI shortcut.** `node apps/cli/dist/index.js ...` works, but the
-   intended `pnpm mesh ...` shortcut cannot resolve the workspace package's own
-   bin under the current pnpm 11 setup. It needs a root-script fix and smoke test.
-8. **No hard invalidation.** Stop/supersede actions do not yet cancel a currently
+6. **No hard invalidation.** Stop/supersede actions do not yet cancel a currently
    running adapter turn. Ordinary Room changes intentionally never do.
-9. **Local trust boundary only.** There is no authentication, authorization,
+7. **Local trust boundary only.** There is no authentication, authorization,
    encryption, tenant isolation, or remote Room server. `attention` is routing,
    not privacy.
-10. **Basic task projection.** Task create/claim/status exists, but automatic
-   planning, dependency graphs, scheduling, and artifact review workflows do not.
-11. **No trace lifecycle policy.** Filtering, export, retention, pruning, and
+8. **Basic task projection.** Task create/claim/status exists, but automatic
+    planning, dependency graphs, scheduling, and artifact review workflows do not.
+9. **No trace lifecycle policy.** Filtering, export, retention, pruning, and
     performance telemetry are not implemented.
 
 ## Resume on another computer
 
 ### 1. Transfer the code safely
 
-Configure and push a Git remote from the current machine first. On the new
-machine, clone the repository and confirm that the baseline or a later documented
-commit is present:
+Verify that the configured Git remote is reachable and push the intended commits
+from the current machine first. On the new machine, clone the repository and
+confirm that the baseline or a later documented commit is present:
 
 ```bash
 git log --oneline -5
@@ -189,8 +189,8 @@ Requirements at this baseline:
 ```bash
 corepack pnpm install
 pnpm verify
-node apps/cli/dist/index.js init
-node apps/cli/dist/index.js agents
+pnpm mesh init
+pnpm mesh agents
 ```
 
 `pnpm verify` is deterministic and does not require real Agent credentials.
@@ -211,8 +211,8 @@ from another directory or intentionally opening a different workspace.
 For a CLI acceptance flow:
 
 ```bash
-node apps/cli/dist/index.js message --start-agents --to team "报数！"
-node apps/cli/dist/index.js timeline --limit 30
+pnpm mesh message --start-agents --to team "报数！"
+pnpm mesh timeline --limit 30
 ```
 
 Real model output is nondeterministic; the automated collaboration tests are the

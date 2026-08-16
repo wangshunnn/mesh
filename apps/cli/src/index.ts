@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 
 import type { MessageAttention, TaskStatus } from "@ai-mesh/protocol";
-import { MeshWorkspace } from "@ai-mesh/workspace";
+import { MeshWorkspace, previewWorkspaceConfig } from "@ai-mesh/workspace";
 
 const argv = process.argv.slice(2);
 const command = argv.shift() ?? "help";
@@ -16,39 +16,51 @@ if (command === "help" || command === "--help" || command === "-h") {
 
 let workspace: MeshWorkspace | undefined;
 try {
-  workspace = MeshWorkspace.open({ root });
-  switch (command) {
-    case "init":
-      console.log(`Initialized Mesh in ${workspace.dataDirectory}`);
-      console.log(`Config: ${workspace.configPath}`);
-      console.log(`Database: ${workspace.databasePath}`);
-      break;
-    case "status":
-      printStatus(workspace.snapshot());
-      break;
-    case "agents":
-      await agentsCommand(workspace, argv);
-      break;
-    case "message":
-      await messageCommand(workspace, argv);
-      break;
-    case "task":
-      taskCommand(workspace, argv);
-      break;
-    case "timeline":
-      timelineCommand(workspace, argv);
-      break;
-    case "demo":
-      await demoCommand(workspace);
-      break;
-    default:
-      throw new Error(`Unknown command ${command}. Run mesh help.`);
+  if (command === "config") {
+    configCommand(root, argv);
+  } else {
+    workspace = MeshWorkspace.open({ root });
+    switch (command) {
+      case "init":
+        console.log(`Initialized Mesh in ${workspace.dataDirectory}`);
+        console.log(`Config: ${workspace.configPath}`);
+        console.log(`Database: ${workspace.databasePath}`);
+        break;
+      case "status":
+        printStatus(workspace.snapshot());
+        break;
+      case "agents":
+        await agentsCommand(workspace, argv);
+        break;
+      case "message":
+        await messageCommand(workspace, argv);
+        break;
+      case "task":
+        taskCommand(workspace, argv);
+        break;
+      case "timeline":
+        timelineCommand(workspace, argv);
+        break;
+      case "demo":
+        await demoCommand(workspace);
+        break;
+      default:
+        throw new Error(`Unknown command ${command}. Run mesh help.`);
+    }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
   await workspace?.close();
+}
+
+function configCommand(workspaceRoot: string, args: string[]): void {
+  const action = args.shift() ?? "preview";
+  if (action !== "preview") {
+    throw new Error(`Unknown config action ${action}. Run mesh help.`);
+  }
+  console.log(JSON.stringify(previewWorkspaceConfig({ root: workspaceRoot }), undefined, 2));
 }
 
 async function agentsCommand(workspace: MeshWorkspace, args: string[]): Promise<void> {
@@ -250,6 +262,7 @@ function printHelp(): void {
 Usage: mesh <command> [--root <workspace>]
 
   init                              create .mesh config and database
+  config preview                    preview effective config without writing files
   status                            show room, agents, messages, and tasks
   agents [list]                     probe configured agents
   agents start|stop|restart <agent> manage one agent session
