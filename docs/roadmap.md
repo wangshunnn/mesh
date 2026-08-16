@@ -114,7 +114,11 @@ stale candidate enter canonical history.
 - [x] Multiple soft updates coalesce into one review
 - [x] Hot Room overflow bypasses review and falls back to one full retry
 - [x] Unrelated task activity does not dirty a thread turn
-- [x] Desktop trace shows correlated Agent lanes and complete raw internal events
+- [x] Desktop trace separates the canonical serial Room rail from concurrent
+  per-Agent turn lanes, draws only explicit trigger/delta/reply/commit links,
+  flags incomplete trace coverage, folds only globally idle wall-clock gaps on a
+  zoomable axis while preserving Agent turn durations, subdivides turns from
+  explicit state-machine phase boundaries, and retains searchable raw events
 
 Exit gate:
 

@@ -103,8 +103,26 @@ regeneration. Explicit adapter cancellation is not part of Phase 2A.
   and reconciliation decisions live in the separate developer trace.
 - Trace data never advances Room subject versions, wakes Agents, becomes a chat
   message, or enters Agent prompts.
-- The desktop “轨迹” panel groups correlated turns into per-Agent lanes and also
-  exposes a newest-first raw event view, including uncommitted and expired output.
+- The desktop “运行轨迹” is a full-width causal timeline: one Room rail preserves
+  canonical message sequence, while each Agent has an independent lane whose
+  turns may overlap other Agents but remain serial within that lane.
+- Its horizontal layout is an idle-compressed wall-clock scale: elapsed time is
+  preserved whenever at least one Agent turn is running, including quiet time
+  inside that turn, while only long gaps with no running Agent are capped. The
+  overview supports click-to-seek and wheel zoom.
+- Trigger, reconciliation-delta, reply, and commit connectors are projected only
+  from explicit protocol references (`triggerIds`, `changeEventId(s)`,
+  `respondingTo`, and `replyEventId`/exact Room sequence). The UI does not infer
+  collaboration rounds from text, timing proximity, or conversational semantics.
+- Selecting a Room message or Agent turn highlights its connected evidence and
+  opens an inspector with candidate content and state-machine events. Turn bars
+  subdivide into explicit generation, candidate-validation, reconciliation, and
+  committed phases, while tool calls and Room changes remain nested markers. A
+  compact DevTools-style overview supports seeking and exposes concurrent work
+  at a glance; a searchable newest-first raw-event view remains available.
+- Every Room message stays visible even when diagnostic trace data is incomplete.
+  Agent-authored messages without a source turn are explicitly marked as trace
+  gaps instead of being omitted or assigned to a synthetic semantic round.
 
 ### Product entry points
 
@@ -128,10 +146,21 @@ The `08f15de` baseline passed on macOS on 2026-08-14:
 - `pnpm smoke:desktop`, including Electron startup, IPC, renderer load, one Room,
   and two configured Agents;
 - Playwright visual QA at 1440×900 and the minimum 1040×680 viewport;
-- collaboration-round and raw-event trace views, expanded before/after candidate
+- causal Room/Agent timeline and raw-event trace views, expanded candidate
   content, and zero browser console errors or warnings;
 - `git diff --check` and a clean forced TypeScript check after the implementation
   commits.
+
+The post-baseline increments were reverified on macOS on 2026-08-16 with
+`pnpm verify`, including the root CLI smoke check and desktop causal-projection
+regressions, and with `pnpm smoke:desktop`. Desktop visual QA at 1440×900 and
+1040×680 confirmed that Room nodes, concurrent Agent lanes, explicit connectors,
+the detail inspector, and raw-event search remain usable without document or
+panel overflow. The historical Room message “我报 42 ✨” resolves to its original
+Codex turn and is not reported as a trace gap. A 107-minute local history with
+25 Room messages and 20 Agent turns was also checked on the idle-compressed
+wall-clock scale: global idle gaps collapse, Agent elapsed-time ratios remain
+intact, and Room labels stay vertically aligned with their timestamp anchors.
 
 ## Known limitations
 

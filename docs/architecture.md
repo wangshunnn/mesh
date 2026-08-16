@@ -138,10 +138,18 @@ room's canonical shared facts.
 
 Every turn caused by the same trigger set carries one stable `correlationId`,
 including parallel participants and later rebase attempts. Session transitions
-also record their previous and next state plus elapsed time. The desktop trace
-can therefore group a collaboration round into per-Agent lanes and show the
-causal chain from first commit to expired candidate and retry, while retaining a
-newest-first raw event view for complete inspection.
+also record their previous and next state plus elapsed time. The desktop projects
+this evidence as a canonical, sequence-ordered Room rail plus independent Agent
+lanes on an idle-compressed wall-clock axis. Time remains linear whenever at
+least one Agent turn is active, so concurrent turn widths preserve their actual
+elapsed-time ratio; only long intervals with no active Agent are capped. Causal
+connectors are drawn only from explicit protocol references; conversational
+content and timestamp proximity never decide which turn a message belongs to.
+Turn-internal phase bands likewise derive only from explicit candidate,
+reconciliation, commit, and terminal trace records; tool and Room-change events
+remain nested markers rather than being promoted into inferred phases.
+Missing references remain visible as diagnostic gaps, and the newest-first raw
+event view is retained for complete inspection.
 
 ## Change-aware candidate reconciliation
 
