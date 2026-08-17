@@ -65,25 +65,33 @@ async function runSmoke(): Promise<void> {
     const result = (await window.webContents.executeJavaScript(
       `(async () => {
         const deadline = Date.now() + 3000;
-        while (document.querySelector(".shell") === null && Date.now() < deadline) {
+        while (document.querySelector('[data-ui="app-shell"]') === null && Date.now() < deadline) {
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
         if (window.mesh === undefined) throw new Error("preload bridge is missing");
         const snapshot = await window.mesh.snapshot();
         const config = await window.mesh.configPreview();
-        const configButton = [...document.querySelectorAll("button")].find(
+        const configButton = [...document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]')].find(
           (button) => button.textContent?.trim() === "配置"
         );
         if (!(configButton instanceof HTMLButtonElement)) throw new Error("config navigation is missing");
         configButton.click();
         const renderDeadline = Date.now() + 1000;
-        while (document.querySelector(".configuration-view") === null && Date.now() < renderDeadline) {
+        while (document.querySelector('[data-ui="configuration-view"]') === null && Date.now() < renderDeadline) {
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
         const nameInput = document.querySelector(".configuration-agent-form input");
         const saveButton = document.querySelector(".configuration-save");
         if (!(nameInput instanceof HTMLInputElement)) throw new Error("configuration name input is missing");
         if (!(saveButton instanceof HTMLButtonElement)) throw new Error("configuration save button is missing");
+        const configSelect = document.querySelector('[aria-label$="适配器"]');
+        const configSwitch = document.querySelector('[role="switch"]');
+        if (!(configSelect instanceof HTMLButtonElement) || configSelect.getAttribute("role") !== "combobox") {
+          throw new Error("Radix configuration select is missing");
+        }
+        if (!(configSwitch instanceof HTMLButtonElement) || configSwitch.getAttribute("aria-checked") === null) {
+          throw new Error("Radix configuration switch is missing");
+        }
         const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (setInputValue === undefined) throw new Error("input value setter is missing");
         setInputValue.call(nameInput, "OpenCode Smoke");
@@ -111,8 +119,11 @@ async function runSmoke(): Promise<void> {
           savedConfigRevision: savedConfig.revision,
           savedAgentName: savedConfig.config.agents[0]?.name ?? "",
           configEditable: document.querySelector(".editable-pill") !== null,
-          configRendered: document.querySelector(".configuration-view") !== null,
-          rendered: document.querySelector(".shell") !== null,
+          configRendered: document.querySelector('[data-ui="configuration-view"]') !== null,
+          rendered: document.querySelector('[data-ui="app-shell"]') !== null,
+          radixSelectRendered: configSelect.getAttribute("role") === "combobox",
+          radixSwitchRendered: configSwitch.getAttribute("role") === "switch",
+          radixTabsRendered: document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]').length === 3,
           errorBanner: document.querySelector(".error-banner")?.textContent ?? ""
         };
       })()`,
@@ -128,12 +139,18 @@ async function runSmoke(): Promise<void> {
       readonly configEditable: boolean;
       readonly configRendered: boolean;
       readonly rendered: boolean;
+      readonly radixSelectRendered: boolean;
+      readonly radixSwitchRendered: boolean;
+      readonly radixTabsRendered: boolean;
       readonly errorBanner: string;
     };
     if (
       !result.rendered ||
       !result.configRendered ||
       !result.configEditable ||
+      !result.radixSelectRendered ||
+      !result.radixSwitchRendered ||
+      !result.radixTabsRendered ||
       result.roomId !== "room:main" ||
       result.configRoomId !== "room:main" ||
       result.configSource !== "default" ||
@@ -169,7 +186,7 @@ async function runSmoke(): Promise<void> {
         if (!(newSessionButton instanceof HTMLButtonElement)) throw new Error("new session action is missing");
         newSessionButton.click();
         await waitFor(
-          () => document.querySelector('.session-item.active')?.getAttribute('data-session-id') !== firstSessionId,
+          () => document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id') !== firstSessionId,
           "new session did not become active"
         );
         const createdCatalog = await window.mesh.workspaceCatalog();
@@ -180,7 +197,7 @@ async function runSmoke(): Promise<void> {
         newSessionButton.click();
         await waitFor(
           () => {
-            const active = document.querySelector('.session-item.active')?.getAttribute('data-session-id');
+            const active = document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id');
             return active !== null && active !== secondSessionId;
           },
           "third blank session did not become active"
@@ -213,7 +230,7 @@ async function runSmoke(): Promise<void> {
           overflowNewSessionButton.click();
           await waitFor(
             () => {
-              const active = document.querySelector('.session-item.active')?.getAttribute('data-session-id');
+              const active = document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id');
               return active !== null && active !== previousSessionId;
             },
             "overflow session did not become active"
@@ -226,7 +243,7 @@ async function runSmoke(): Promise<void> {
         const overflowCatalog = await window.mesh.workspaceCatalog();
         const overflowSessionId = overflowCatalog.activeSessionId;
         await waitFor(
-          () => document.querySelector('.session-item.active')?.getAttribute('data-session-id') === overflowSessionId,
+          () => document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id') === overflowSessionId,
           "overflow session did not become active"
         );
         const firstWorkspaceGroup = document.querySelector('[data-workspace-id="' + firstWorkspaceId + '"]');
@@ -236,10 +253,10 @@ async function runSmoke(): Promise<void> {
         const projectToggle = firstWorkspaceGroup.querySelector('.workspace-toggle');
         if (!(projectToggle instanceof HTMLButtonElement)) throw new Error("project collapse action is missing");
         projectToggle.click();
-        await waitFor(() => firstWorkspaceGroup.classList.contains('group-collapsed'), "project did not collapse");
+        await waitFor(() => firstWorkspaceGroup.getAttribute('data-state') === 'closed', "project did not collapse");
         const collapsedProjectSessions = firstWorkspaceGroup.querySelectorAll('.session-item').length;
         projectToggle.click();
-        await waitFor(() => !firstWorkspaceGroup.classList.contains('group-collapsed'), "project did not expand");
+        await waitFor(() => firstWorkspaceGroup.getAttribute('data-state') === 'open', "project did not expand");
         const overflowButton = firstWorkspaceGroup.querySelector('.session-overflow');
         if (!(overflowButton instanceof HTMLButtonElement)) throw new Error("session overflow action is missing");
         overflowButton.click();
@@ -252,7 +269,7 @@ async function runSmoke(): Promise<void> {
         if (!(firstSessionButton instanceof HTMLButtonElement)) throw new Error("first session action is missing");
         firstSessionButton.click();
         await waitFor(
-          () => document.querySelector('.session-item.active')?.getAttribute('data-session-id') === firstSessionId,
+          () => document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id') === firstSessionId,
           "first session did not become active"
         );
         const returnedCatalog = await window.mesh.workspaceCatalog();
@@ -262,10 +279,20 @@ async function runSmoke(): Promise<void> {
         )?.closest('.session-row');
         const archivedSessionButton = archivedSessionRow?.querySelector('.session-actions-trigger');
         if (!(archivedSessionButton instanceof HTMLButtonElement)) throw new Error("empty session actions trigger is missing");
-        archivedSessionButton.click();
-        await waitFor(() => document.querySelector('.session-action-menu') !== null, "session actions menu did not open");
-        const archiveMenuItem = document.querySelector('.session-action-menu [role="menuitem"]');
-        if (!(archiveMenuItem instanceof HTMLButtonElement)) throw new Error("archive session menu item is missing");
+        archivedSessionButton.focus();
+        archivedSessionButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') !== null, "keyboard did not open session actions menu");
+        document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') === null, "Escape did not close session actions menu");
+        const sessionMenuFocusRestored = document.activeElement === archivedSessionButton;
+        archivedSessionButton.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }));
+        await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') !== null, "session actions menu did not open");
+        const archiveMenuItem = document.querySelector('[data-ui="session-action-menu"] [role="menuitem"]');
+        if (!(archiveMenuItem instanceof HTMLElement)) throw new Error("archive session menu item is missing");
         const sessionMenuItemLabel = archiveMenuItem.textContent?.trim() ?? "";
         archiveMenuItem.click();
         await waitFor(
@@ -277,36 +304,36 @@ async function runSmoke(): Promise<void> {
         const leftSidebarToggle = document.querySelector('.left-sidebar-toggle');
         if (!(leftSidebarToggle instanceof HTMLButtonElement)) throw new Error("left sidebar toggle is missing");
         leftSidebarToggle.click();
-        await waitFor(() => document.querySelector('.workspace-sidebar')?.classList.contains('collapsed') === true, "left sidebar did not collapse");
+        await waitFor(() => document.querySelector('[data-ui="workspace-sidebar"]')?.getAttribute('data-state') === 'collapsed', "left sidebar did not collapse");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const collapsedMainRect = document.querySelector('.workspace-main')?.getBoundingClientRect();
-        const collapsedGridRect = document.querySelector('.workspace-grid')?.getBoundingClientRect();
+        const collapsedMainRect = document.querySelector('[data-ui="workspace-main"]')?.getBoundingClientRect();
+        const collapsedGridRect = document.querySelector('[data-ui="workspace-grid"]')?.getBoundingClientRect();
         const collapsedViewportWidth = document.documentElement.clientWidth;
         const collapsedLeftWidth = collapsedMainRect?.left ?? -1;
         const collapsedMainWidth = collapsedMainRect?.width ?? 0;
         const collapsedGridWidth = collapsedGridRect?.width ?? 0;
-        const collapsedSidebarOverlayWidth = document.querySelector('.workspace-sidebar')?.getBoundingClientRect().width ?? 0;
+        const collapsedSidebarOverlayWidth = document.querySelector('[data-ui="workspace-sidebar"]')?.getBoundingClientRect().width ?? 0;
         const collapsedToggleRect = leftSidebarToggle.getBoundingClientRect();
         const collapsedToggleHitTarget = document.elementFromPoint(
           collapsedToggleRect.left + collapsedToggleRect.width / 2,
           collapsedToggleRect.top + collapsedToggleRect.height / 2
         )?.closest('.left-sidebar-toggle') === leftSidebarToggle;
         leftSidebarToggle.click();
-        await waitFor(() => document.querySelector('.workspace-sidebar')?.classList.contains('collapsed') === false, "left sidebar did not expand");
+        await waitFor(() => document.querySelector('[data-ui="workspace-sidebar"]')?.getAttribute('data-state') === 'expanded', "left sidebar did not expand");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const expandedLeftWidth = document.querySelector('.workspace-sidebar')?.getBoundingClientRect().width ?? 0;
+        const expandedLeftWidth = document.querySelector('[data-ui="workspace-sidebar"]')?.getBoundingClientRect().width ?? 0;
         const expandedToggleRect = leftSidebarToggle.getBoundingClientRect();
 
         const rightSidebarToggle = document.querySelector('.right-sidebar-toggle');
         if (!(rightSidebarToggle instanceof HTMLButtonElement)) throw new Error("right sidebar toggle is missing");
         rightSidebarToggle.click();
-        await waitFor(() => document.querySelector('.workspace-grid')?.classList.contains('right-collapsed') === true, "right sidebar did not collapse");
+        await waitFor(() => document.querySelector('[data-ui="right-sidebar"]')?.getAttribute('data-state') === 'collapsed', "right sidebar did not collapse");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const collapsedRightWidth = document.querySelector('.right-column')?.getBoundingClientRect().width ?? 0;
+        const collapsedRightWidth = document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0;
         rightSidebarToggle.click();
-        await waitFor(() => document.querySelector('.workspace-grid')?.classList.contains('right-collapsed') === false, "right sidebar did not expand");
+        await waitFor(() => document.querySelector('[data-ui="right-sidebar"]')?.getAttribute('data-state') === 'expanded', "right sidebar did not expand");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const expandedRightWidth = document.querySelector('.right-column')?.getBoundingClientRect().width ?? 0;
+        const expandedRightWidth = document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0;
         const navigationHeight = (document.querySelector('.topbar')?.getBoundingClientRect().height ?? 0)
           + (document.querySelector('.view-tabs')?.getBoundingClientRect().height ?? 0);
         const rootStyle = getComputedStyle(document.documentElement);
@@ -328,7 +355,7 @@ async function runSmoke(): Promise<void> {
         if (!(originalSessionButton instanceof HTMLButtonElement)) throw new Error("original session disappeared");
         originalSessionButton.click();
         await waitFor(
-          () => document.querySelector('.session-item.active')?.getAttribute('data-session-id') === firstSessionId,
+          () => document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id') === firstSessionId,
           "original workspace session did not reactivate"
         );
         const inactiveWorkspaceGroup = [...document.querySelectorAll('.workspace-group')].find(
@@ -337,11 +364,13 @@ async function runSmoke(): Promise<void> {
         const inactiveWorkspaceToggle = inactiveWorkspaceGroup?.querySelector('.workspace-toggle');
         if (!(inactiveWorkspaceToggle instanceof HTMLButtonElement)) throw new Error("inactive project toggle is missing");
         inactiveWorkspaceToggle.click();
+        await waitFor(() => inactiveWorkspaceToggle.getAttribute("aria-expanded") === "false", "inactive project did not collapse");
         const inactiveWorkspaceHeading = inactiveWorkspaceToggle.closest('.workspace-group-heading');
         const inactiveWorkspaceFocusBackground = inactiveWorkspaceHeading === null
           ? "missing"
           : getComputedStyle(inactiveWorkspaceHeading).backgroundColor;
         inactiveWorkspaceToggle.click();
+        await waitFor(() => inactiveWorkspaceToggle.getAttribute("aria-expanded") === "true", "inactive project did not expand");
         const finalCatalog = await window.mesh.workspaceCatalog();
         return {
           firstWorkspaceId,
@@ -354,6 +383,7 @@ async function runSmoke(): Promise<void> {
           overflowSessionCount: overflowCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
           archivedSessionCount: archivedCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
           sessionMenuItemLabel,
+          sessionMenuFocusRestored,
           visibleBeforeExpand,
           overflowButtonLabel,
           collapsedProjectSessions,
@@ -387,10 +417,10 @@ async function runSmoke(): Promise<void> {
           sessionFontSize,
           messageFontSize,
           inactiveWorkspaceFocusBackground,
-          activeSessionCount: document.querySelectorAll('.session-item.active').length,
+          activeSessionCount: document.querySelectorAll('[data-ui="session-item"][aria-current="page"]').length,
           renderedWorkspaceGroups: document.querySelectorAll('.workspace-group').length,
           renderedSessions: document.querySelectorAll('.session-item').length,
-          sidebarRendered: document.querySelector('.workspace-sidebar') !== null,
+          sidebarRendered: document.querySelector('[data-ui="workspace-sidebar"]') !== null,
           errorBanner: document.querySelector('.error-banner')?.textContent ?? ""
         };
       })()`,
@@ -406,6 +436,7 @@ async function runSmoke(): Promise<void> {
       readonly overflowSessionCount: number;
       readonly archivedSessionCount: number;
       readonly sessionMenuItemLabel: string;
+      readonly sessionMenuFocusRestored: boolean;
       readonly visibleBeforeExpand: number;
       readonly overflowButtonLabel: string;
       readonly collapsedProjectSessions: number;
@@ -455,6 +486,7 @@ async function runSmoke(): Promise<void> {
       navigation.overflowSessionCount !== 6 ||
       navigation.archivedSessionCount !== 5 ||
       navigation.sessionMenuItemLabel !== "归档会话" ||
+      !navigation.sessionMenuFocusRestored ||
       navigation.visibleBeforeExpand !== 5 ||
       navigation.overflowButtonLabel !== "展示更多" ||
       navigation.collapsedProjectSessions !== 0 ||
@@ -517,47 +549,47 @@ async function runSmoke(): Promise<void> {
           while ((window.innerWidth !== ${String(size.width)} || window.innerHeight !== ${String(size.height)}) && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 25));
           }
-          const roomButton = [...document.querySelectorAll(".breadcrumb button")].find(
+          const roomButton = [...document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]')].find(
             (button) => button.textContent?.trim() === "对话"
           );
           if (!(roomButton instanceof HTMLButtonElement)) throw new Error("room navigation is missing");
           roomButton.click();
           await new Promise((resolve) => setTimeout(resolve, 50));
-          const sidebar = document.querySelector(".workspace-sidebar");
-          const main = document.querySelector(".workspace-main");
-          const grid = document.querySelector(".workspace-grid");
-          const sessionItems = [...document.querySelectorAll(".session-item")];
+          const sidebar = document.querySelector('[data-ui="workspace-sidebar"]');
+          const main = document.querySelector('[data-ui="workspace-main"]');
+          const grid = document.querySelector('[data-ui="workspace-grid"]');
+          const sessionItems = [...document.querySelectorAll('[data-ui="session-item"]')];
           const roomLayout = {
             sidebarOverflow: sidebar === null ? true : sidebar.scrollWidth > sidebar.clientWidth,
             mainOverflow: main === null ? true : main.scrollWidth > main.clientWidth,
             gridOverflow: grid === null ? true : grid.scrollWidth > grid.clientWidth,
             minimumSessionWidth: sessionItems.length === 0 ? 0 : Math.min(...sessionItems.map((item) => item.getBoundingClientRect().width)),
             sidebarWidth: sidebar?.getBoundingClientRect().width ?? 0,
-            chatWidth: document.querySelector(".chat-column")?.getBoundingClientRect().width ?? 0
+            chatWidth: document.querySelector('[data-ui="chat-column"]')?.getBoundingClientRect().width ?? 0
           };
           const leftSidebarToggle = document.querySelector(".left-sidebar-toggle");
           if (!(leftSidebarToggle instanceof HTMLButtonElement)) throw new Error("left sidebar toggle is missing");
           leftSidebarToggle.click();
           await new Promise((resolve) => setTimeout(resolve, 250));
-          const collapsedMain = document.querySelector(".workspace-main");
-          const collapsedGrid = document.querySelector(".workspace-grid");
+          const collapsedMain = document.querySelector('[data-ui="workspace-main"]');
+          const collapsedGrid = document.querySelector('[data-ui="workspace-grid"]');
           const collapsedRoomLayout = {
-            collapsedSidebarActive: document.querySelector(".workspace-sidebar")?.classList.contains("collapsed") === true,
+            collapsedSidebarActive: document.querySelector('[data-ui="workspace-sidebar"]')?.getAttribute('data-state') === 'collapsed',
             collapsedDocumentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
             collapsedMainLeft: collapsedMain?.getBoundingClientRect().left ?? -1,
             collapsedMainWidth: collapsedMain?.getBoundingClientRect().width ?? 0,
             collapsedGridWidth: collapsedGrid?.getBoundingClientRect().width ?? 0,
-            collapsedChatWidth: document.querySelector(".chat-column")?.getBoundingClientRect().width ?? 0
+            collapsedChatWidth: document.querySelector('[data-ui="chat-column"]')?.getBoundingClientRect().width ?? 0
           };
           leftSidebarToggle.click();
           await new Promise((resolve) => setTimeout(resolve, 250));
-          const configButton = [...document.querySelectorAll(".breadcrumb button")].find(
+          const configButton = [...document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]')].find(
             (button) => button.textContent?.trim() === "配置"
           );
           if (!(configButton instanceof HTMLButtonElement)) throw new Error("config navigation is missing");
           configButton.click();
           await new Promise((resolve) => setTimeout(resolve, 50));
-          const configView = document.querySelector(".configuration-view");
+          const configView = document.querySelector('[data-ui="configuration-view"]');
           const configScroll = document.querySelector(".configuration-scroll");
           const cards = [...document.querySelectorAll(".configuration-agent")];
           return {
@@ -623,7 +655,45 @@ async function runSmoke(): Promise<void> {
           configurationScreenshot.toPNG(),
         );
         await window.webContents.executeJavaScript(
-          `([...document.querySelectorAll(".breadcrumb button")].find((button) => button.textContent?.trim() === "对话"))?.click()`,
+          `(() => {
+            const select = document.querySelector('[aria-label$="适配器"]');
+            select?.scrollIntoView({ block: "center" });
+            select?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }));
+          })()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const selectScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `configuration-select-${String(size.width)}x${String(size.height)}.png`),
+          selectScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`,
+          true,
+        );
+        await window.webContents.executeJavaScript(
+          `([...document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]')].find((button) => button.textContent?.includes("轨迹")))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const trajectoryScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `trajectory-${String(size.width)}x${String(size.height)}.png`),
+          trajectoryScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `([...document.querySelectorAll('[data-ui="trajectory-tabs"] [role="tab"]')].find((button) => button.textContent?.includes("原始事件")))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const rawTraceScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `trajectory-events-${String(size.width)}x${String(size.height)}.png`),
+          rawTraceScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `([...document.querySelectorAll('[data-ui="workspace-tabs"] [role="tab"]')].find((button) => button.textContent?.trim() === "对话"))?.click()`,
           true,
         );
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -632,6 +702,21 @@ async function runSmoke(): Promise<void> {
           join(screenshotDirectory, `workspace-${String(size.width)}x${String(size.height)}.png`),
           workspaceScreenshot.toPNG(),
         );
+        await window.webContents.executeJavaScript(
+          `(document.querySelector(".right-sidebar-toggle"))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const rightCollapsedScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `workspace-right-collapsed-${String(size.width)}x${String(size.height)}.png`),
+          rightCollapsedScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `(document.querySelector(".right-sidebar-toggle"))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
         await window.webContents.executeJavaScript(
           `(document.querySelector(".left-sidebar-toggle"))?.click()`,
           true,

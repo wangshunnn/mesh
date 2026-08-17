@@ -9,6 +9,7 @@ import type {
 } from "@ai-mesh/application";
 
 import type { DesktopAgentProbe } from "../shared/api.js";
+import { Badge, Button, SelectControl, SwitchControl } from "./ui/controls.js";
 
 export interface ConfigurationViewProps {
   readonly preview: WorkspaceConfigPreview | undefined;
@@ -83,7 +84,7 @@ export function ConfigurationView({
   };
 
   return (
-    <form className="configuration-view" onSubmit={(event) => void submit(event)}>
+    <form className="configuration-view" data-ui="configuration-view" onSubmit={(event) => void submit(event)}>
       <header className="configuration-heading">
         <div>
           <div className="configuration-title-row">
@@ -93,26 +94,30 @@ export function ConfigurationView({
           <p>整份配置会先校验，再原子保存并安全重载当前会话。</p>
         </div>
         <div className="configuration-heading-actions">
-          <button
-            type="button"
+          <Button
+            tone="ghost"
+            compact
             className="ghost compact"
             disabled={busy !== undefined}
             onClick={() => {
               setDraft(cloneConfig(preview.config));
               setNotice(undefined);
             }}
-          >撤销</button>
-          <button
-            type="button"
+          >撤销</Button>
+          <Button
+            tone="ghost"
+            compact
             className="ghost compact"
             disabled={busy !== undefined}
             onClick={() => void reload()}
-          >{reloading ? "正在重载…" : "重新加载"}</button>
-          <button
+          >{reloading ? "正在重载…" : "重新加载"}</Button>
+          <Button
             type="submit"
-            className="primary compact configuration-save"
+            tone="primary"
+            compact
+            className="compact configuration-save"
             disabled={!dirty || validationError !== undefined || busy !== undefined}
-          >{saving ? "正在保存…" : "保存配置"}</button>
+          >{saving ? "正在保存…" : "保存配置"}</Button>
         </div>
       </header>
       <div className="configuration-scroll">
@@ -129,7 +134,9 @@ export function ConfigurationView({
               <p className="configuration-validation" role="alert">{validationError}</p>
             )}
           </div>
-          <span className={`source-badge ${preview.source}`}>{preview.source}</span>
+          <Badge tone={preview.source === "legacy" ? "warning" : "neutral"} className={`source-badge ${preview.source}`}>
+            {preview.source}
+          </Badge>
         </section>
 
         <section className="configuration-section">
@@ -192,25 +199,41 @@ export function ConfigurationView({
                     <label className="wide"><span>参与者 ID</span><input required value={agent.id} onChange={(event) => updateAgent(index, { id: event.target.value })} /></label>
                     <label>
                       <span>适配器</span>
-                      <select value={agent.adapter} onChange={(event) => updateAgent(index, { adapter: event.target.value as WorkspaceAgentConfig["adapter"] })}>
-                        <option value="opencode-acp">OpenCode ACP</option>
-                        <option value="codex-native">Codex Native</option>
-                      </select>
+                      <SelectControl<WorkspaceAgentConfig["adapter"]>
+                        value={agent.adapter}
+                        ariaLabel={`${agent.name || "Agent"} 适配器`}
+                        options={[
+                          { value: "opencode-acp", label: "OpenCode ACP" },
+                          { value: "codex-native", label: "Codex Native" },
+                        ]}
+                        onValueChange={(adapter) => updateAgent(index, { adapter })}
+                        className="configuration-select w-full"
+                      />
                     </label>
                     <label>
                       <span>权限策略</span>
-                      <select value={agent.permissionPolicy ?? "deny"} onChange={(event) => updateAgent(index, { permissionPolicy: event.target.value as NonNullable<WorkspaceAgentConfig["permissionPolicy"]> })}>
-                        <option value="deny">拒绝工具权限</option>
-                        <option value="allow-once">单次允许</option>
-                        <option value="allow-always">始终允许</option>
-                      </select>
+                      <SelectControl<NonNullable<WorkspaceAgentConfig["permissionPolicy"]>>
+                        value={agent.permissionPolicy ?? "deny"}
+                        ariaLabel={`${agent.name || "Agent"} 权限策略`}
+                        options={[
+                          { value: "deny", label: "拒绝工具权限" },
+                          { value: "allow-once", label: "单次允许" },
+                          { value: "allow-always", label: "始终允许" },
+                        ]}
+                        onValueChange={(permissionPolicy) => updateAgent(index, { permissionPolicy })}
+                        className="configuration-select w-full"
+                      />
                     </label>
                     <label className="wide">
                       <span>命令覆盖</span>
                       <input value={agent.command ?? ""} placeholder={agent.adapter === "opencode-acp" ? "opencode（默认）" : "codex（默认）"} onChange={(event) => updateAgent(index, { command: event.target.value })} />
                     </label>
                     <label className="configuration-toggle wide">
-                      <input type="checkbox" checked={agent.respondToTeam === true} onChange={(event) => updateAgent(index, { respondToTeam: event.target.checked })} />
+                      <SwitchControl
+                        checked={agent.respondToTeam === true}
+                        onCheckedChange={(respondToTeam) => updateAgent(index, { respondToTeam })}
+                        ariaLabel={`${agent.name || "Agent"} 响应团队消息`}
+                      />
                       <span>响应发送给团队的消息</span>
                     </label>
                     <label className="wide">

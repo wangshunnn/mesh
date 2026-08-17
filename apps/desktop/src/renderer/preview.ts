@@ -1,0 +1,416 @@
+import type { RoomSnapshot, WorkspaceCatalogView, WorkspaceConfigPreview } from "@ai-mesh/application";
+import { CoreAction, type RoomEvent, type SubjectRef, type TraceRecord } from "@ai-mesh/protocol";
+
+export const emptySnapshot: RoomSnapshot = Object.freeze({
+  roomId: "room:loading",
+  headSequence: 0,
+  agents: Object.freeze([]),
+  messages: Object.freeze([]),
+  tasks: Object.freeze([]),
+  timeline: Object.freeze([]),
+  trace: Object.freeze([]),
+});
+
+function isWorkspaceTransitionBusy(busy: string | undefined): boolean {
+  return busy === "open-workspace"
+    || busy?.startsWith("create-session:") === true
+    || busy?.startsWith("select-session:") === true;
+}
+
+export const previewSnapshot: RoomSnapshot = Object.freeze({
+  roomId: "room:mesh-preview",
+  headSequence: 9,
+  agents: Object.freeze([
+    Object.freeze({
+      id: "agent:opencode",
+      name: "OpenCode",
+      handle: "opencode",
+      adapterKind: "opencode",
+      state: "waiting",
+      sessionId: "preview-acp",
+      updatedAt: Date.now(),
+    }),
+    Object.freeze({
+      id: "agent:codex",
+      name: "Codex",
+      handle: "codex",
+      adapterKind: "codex",
+      state: "idle",
+      sessionId: "preview-native",
+      updatedAt: Date.now(),
+    }),
+  ]),
+  messages: Object.freeze([
+    Object.freeze({
+      eventId: "preview:message:1",
+      sequence: 3,
+      threadId: "general",
+      from: "human",
+      text: "请 OpenCode 和 Codex 并行梳理登录认证流程，先完成者提交，另一方基于最新状态复核。",
+      attention: "team",
+      respondingTo: Object.freeze([]),
+      createdAt: Date.now() - 120_000,
+    }),
+    Object.freeze({
+      eventId: "preview:message:2",
+      sequence: 5,
+      threadId: "general",
+      from: "agent:opencode",
+      text: "刷新令牌路径会经过 session.ts 和 token-store.ts。@human 初步结论已提交。",
+      attention: Object.freeze(["human"]),
+      respondingTo: Object.freeze(["preview:message:1"]),
+      createdAt: Date.now() - 70_000,
+    }),
+    Object.freeze({
+      eventId: "preview:message:3",
+      sequence: 8,
+      threadId: "general",
+      from: "agent:codex",
+      text: "已基于最新房间状态复核，两处调用关系一致。@human",
+      attention: Object.freeze(["human"]),
+      respondingTo: Object.freeze(["preview:message:2"]),
+      createdAt: Date.now() - 25_000,
+    }),
+  ]),
+  tasks: Object.freeze([
+    Object.freeze({
+      id: "preview-task",
+      title: "加固刷新令牌轮换逻辑",
+      status: "review",
+      ownerId: "agent:codex",
+      version: 3,
+      updatedAt: Date.now() - 20_000,
+    }),
+  ]),
+  timeline: Object.freeze([
+    previewEvent(
+      3,
+      "human",
+      { kind: "thread", id: "general" },
+      CoreAction.threadMessageAppend,
+      { kind: "message", text: "已发起认证流程检查" },
+      Date.now() - 120_000,
+    ),
+    previewEvent(
+      5,
+      "agent:opencode",
+      { kind: "thread", id: "general" },
+      CoreAction.threadReplyCommit,
+      { kind: "message", text: "结论已交接给 Codex" },
+      Date.now() - 70_000,
+    ),
+    previewEvent(
+      7,
+      "agent:codex",
+      { kind: "task", id: "preview-task" },
+      CoreAction.taskClaim,
+      { kind: "task-claimed", ownerId: "agent:codex" },
+      Date.now() - 38_000,
+    ),
+    previewEvent(
+      8,
+      "agent:codex",
+      { kind: "thread", id: "general" },
+      CoreAction.threadReplyCommit,
+      { kind: "message", text: "核对结果已返回给用户" },
+      Date.now() - 25_000,
+    ),
+    previewEvent(
+      9,
+      "agent:codex",
+      { kind: "task", id: "preview-task" },
+      CoreAction.taskUpdate,
+      { kind: "task-updated", status: "review" },
+      Date.now() - 20_000,
+    ),
+  ]),
+  trace: Object.freeze([
+    previewTrace(1, "human", "room.event.committed", "committed", Date.now() - 120_000, {
+      detail: CoreAction.threadMessageAppend,
+      data: { eventId: "preview:message:1", roomSequence: 3, subjectVersion: 1, action: CoreAction.threadMessageAppend },
+    }),
+    previewTrace(2, "agent:opencode", "agent.turn.started", "running", Date.now() - 116_000, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      detail: "Observing thread version 1.",
+      data: { triggerIds: ["preview:message:1"], observedVersion: 1 },
+    }),
+    previewTrace(3, "agent:codex", "agent.turn.started", "running", Date.now() - 115_988, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      detail: "Observing thread version 1.",
+      data: { triggerIds: ["preview:message:1"], observedVersion: 1 },
+    }),
+    previewTrace(4, "agent:opencode", "agent.session.status", "running", Date.now() - 115_995, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      detail: "ready -> working",
+      data: { fromStatus: "ready", toStatus: "working", statusDurationMs: 4 },
+    }),
+    previewTrace(5, "agent:opencode", "agent.tool.completed", "completed", Date.now() - 108_000, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      detail: "搜索认证相关文件",
+      data: { toolCallId: "tool:search-auth" },
+    }),
+    previewTrace(6, "agent:opencode", "agent.session.status", "completed", Date.now() - 100_500, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      detail: "working -> waiting",
+      data: { fromStatus: "working", toStatus: "waiting", statusDurationMs: 15_495 },
+    }),
+    previewTrace(7, "agent:opencode", "agent.draft.generated", "pending", Date.now() - 100_490, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      content: "刷新令牌路径会经过 session.ts 和 token-store.ts。@human 初步结论已提交。",
+      detail: "completed",
+      data: { triggerIds: ["preview:message:1"], observedVersion: 1, durationMs: 15_510 },
+    }),
+    previewTrace(8, "agent:opencode", "room.event.committed", "committed", Date.now() - 100_482, {
+      correlationId: "preview:collaboration:auth",
+      detail: CoreAction.threadReplyCommit,
+      data: {
+        eventId: "preview:message:2",
+        roomSequence: 5,
+        subjectVersion: 2,
+        action: CoreAction.threadReplyCommit,
+        payload: { respondingTo: ["preview:message:1"] },
+      },
+    }),
+    previewTrace(9, "agent:codex", "agent.turn.dirty", "dirty", Date.now() - 100_481, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      detail: "soft",
+      data: {
+        impact: "soft",
+        changeEventId: "preview:message:2",
+        roomSequence: 5,
+        basedOnVersion: 1,
+        currentVersion: 2,
+      },
+    }),
+    previewTrace(10, "agent:opencode", "agent.draft.committed", "committed", Date.now() - 100_480, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      content: "刷新令牌路径会经过 session.ts 和 token-store.ts。@human 初步结论已提交。",
+      detail: "Committed as room event preview:message:2.",
+      data: {
+        triggerIds: ["preview:message:1"],
+        replyEventId: "preview:message:2",
+        roomSequence: 5,
+        observedVersion: 1,
+        validatedVersion: 1,
+      },
+    }),
+    previewTrace(11, "agent:opencode", "agent.turn.completed", "completed", Date.now() - 100_470, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:opencode:auth:v1",
+      attempt: 1,
+      detail: "replied",
+      data: { triggerIds: ["preview:message:1"], observedVersion: 1, durationMs: 15_530 },
+    }),
+    previewTrace(12, "agent:codex", "agent.session.status", "completed", Date.now() - 84_000, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      detail: "working -> waiting",
+      data: { fromStatus: "working", toStatus: "waiting", statusDurationMs: 31_988 },
+    }),
+    previewTrace(13, "agent:codex", "agent.draft.generated", "pending", Date.now() - 83_990, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      content: "认证路径只经过 session.ts。@human",
+      detail: "completed",
+      data: { triggerIds: ["preview:message:1"], observedVersion: 1, durationMs: 31_998 },
+    }),
+    previewTrace(14, "agent:codex", "agent.reconciliation.started", "running", Date.now() - 83_980, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      detail: "Reviewing 1 relevant room change.",
+      data: {
+        pass: 1,
+        basedOnVersion: 1,
+        targetVersion: 2,
+        changeEventIds: ["preview:message:2"],
+      },
+    }),
+    previewTrace(15, "agent:codex", "agent.reconciliation.decided", "completed", Date.now() - 82_010, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      content: "已基于最新房间状态复核，两处调用关系一致。@human",
+      detail: "patch",
+      data: {
+        pass: 1,
+        decision: "patch",
+        reason: "OpenCode supplied the missing token-store path.",
+        basedOnVersion: 1,
+        targetVersion: 2,
+        durationMs: 1_970,
+      },
+    }),
+    previewTrace(16, "agent:codex", "agent.draft.committed", "committed", Date.now() - 82_000, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      content: "已基于最新房间状态复核，两处调用关系一致。@human",
+      detail: "Committed as room event preview:message:3.",
+      data: {
+        triggerIds: ["preview:message:1"],
+        roomSequence: 8,
+        observedVersion: 1,
+        validatedVersion: 2,
+        reconciliationPasses: 1,
+      },
+    }),
+    previewTrace(17, "agent:codex", "agent.turn.completed", "completed", Date.now() - 81_990, {
+      correlationId: "preview:collaboration:auth",
+      turnId: "turn:codex:auth:v1",
+      attempt: 1,
+      detail: "replied",
+      data: {
+        triggerIds: ["preview:message:1"],
+        observedVersion: 1,
+        finalBasisVersion: 2,
+        reconciliationPasses: 1,
+        durationMs: 34_010,
+      },
+    }),
+  ]),
+});
+
+export const previewConfig: WorkspaceConfigPreview = Object.freeze({
+  workspaceId: "7eea79bc-9cbf-4d29-950b-c97ab0f52bdf",
+  sessionId: "session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
+  root: "/workspace/mesh",
+  meshHome: "/Users/demo/.mesh",
+  projectKey: "--workspace-mesh--b5f31f1eb2c0",
+  registryPath: "/Users/demo/.mesh/storages/workspace.json",
+  projectionCachePath: "/Users/demo/.mesh/storages/session-projection-cache.json",
+  sessionDirectory: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
+  headerPath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/header.json",
+  dataDirectory: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902",
+  configPath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/config.json",
+  databasePath: "/Users/demo/.mesh/sessions/--workspace-mesh--b5f31f1eb2c0/session-1d37f64f-9365-4f44-9c06-c0e69b29c902/mesh.db",
+  revision: null,
+  source: "file",
+  config: Object.freeze({
+    version: 1,
+    roomId: "room:mesh-preview",
+    agents: Object.freeze([
+      Object.freeze({
+        id: "agent:opencode",
+        name: "OpenCode",
+        handle: "opencode",
+        adapter: "opencode-acp",
+        permissionPolicy: "deny",
+        respondToTeam: true,
+      }),
+      Object.freeze({
+        id: "agent:codex",
+        name: "Codex",
+        handle: "codex",
+        adapter: "codex-native",
+        permissionPolicy: "deny",
+        respondToTeam: true,
+      }),
+    ]),
+  }),
+});
+
+export const previewCatalog: WorkspaceCatalogView = Object.freeze({
+  activeWorkspaceId: previewConfig.workspaceId,
+  activeSessionId: previewConfig.sessionId,
+  workspaces: Object.freeze([
+    Object.freeze({
+      id: previewConfig.workspaceId,
+      name: "mesh",
+      root: previewConfig.root,
+      status: "available",
+      createdAt: "2026-08-17T08:20:00.000Z",
+      updatedAt: "2026-08-17T09:42:00.000Z",
+      lastOpenedAt: "2026-08-17T09:42:00.000Z",
+      sessions: Object.freeze([
+        Object.freeze({
+          id: previewConfig.sessionId,
+          workspaceId: previewConfig.workspaceId,
+          status: "ok",
+          title: "复核登录认证流程",
+          preview: "已基于最新房间状态复核，两处调用关系一致。",
+          createdAt: "2026-08-17T08:20:00.000Z",
+          updatedAt: "2026-08-17T09:42:00.000Z",
+          headSequence: previewSnapshot.headSequence,
+          messageCount: previewSnapshot.messages.length,
+          archived: false,
+        }),
+        Object.freeze({
+          id: "session-preview-empty",
+          workspaceId: previewConfig.workspaceId,
+          status: "ok",
+          title: "New Session",
+          preview: "",
+          createdAt: "2026-08-16T15:10:00.000Z",
+          updatedAt: "2026-08-16T15:10:00.000Z",
+          headSequence: 0,
+          messageCount: 0,
+          archived: false,
+        }),
+      ]),
+    }),
+  ]),
+});
+
+function previewEvent(
+  sequence: number,
+  actorId: string,
+  subject: SubjectRef,
+  action: string,
+  payload: unknown,
+  committedAt: number,
+): RoomEvent {
+  return Object.freeze({
+    id: `preview:event:${String(sequence)}`,
+    sequence,
+    roomId: "room:mesh-preview",
+    actorId,
+    subject: Object.freeze({ ...subject }),
+    subjectVersion: 1,
+    action,
+    payload: Object.freeze(payload as object),
+    intentId: `preview:intent:${String(sequence)}`,
+    idempotencyKey: `preview:key:${String(sequence)}`,
+    causedBy: Object.freeze([]),
+    committedAt,
+  });
+}
+
+function previewTrace(
+  sequence: number,
+  actorId: string,
+  kind: string,
+  status: TraceRecord["status"],
+  occurredAt: number,
+  options: Pick<TraceRecord, "detail" | "data"> &
+    Partial<Pick<TraceRecord, "correlationId" | "turnId" | "attempt" | "content">>,
+): TraceRecord {
+  return Object.freeze({
+    id: `preview:trace:${String(sequence)}`,
+    sequence,
+    roomId: "room:mesh-preview",
+    actorId,
+    kind,
+    status,
+    occurredAt,
+    ...options,
+  });
+}

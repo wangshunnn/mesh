@@ -30,3 +30,21 @@ keeping the current or newest one per workspace. The renderer follows DSH's
 hover-ellipsis plus “归档会话” menu rather than presenting archive as a destructive
 trash action. Workspace-switch busy state is scoped to navigation so unrelated
 controls do not visually flash disabled during a transition.
+
+## Renderer UI stack
+
+The sandboxed renderer uses React 19, Tailwind CSS v4 through the official
+Vite plugin, Radix Primitives for stateful accessible controls, and Lucide React
+for general-purpose icons. `app.css` owns the light semantic theme and Electron
+base rules; dynamic causal-timeline geometry and SVG state styling live in the
+separate `trajectory.css` layer.
+
+Renderer components should use the shared controls below `src/renderer/ui/`.
+Use complete static Tailwind class names with `clsx` for variants rather than
+constructing utility names at runtime. Import Radix primitives from `radix-ui`
+subpaths, keep text inputs and structural scrolling native, and reserve custom
+SVG for Mesh-specific protocol concepts instead of duplicating Lucide glyphs.
+
+Electron smoke automation targets roles, ARIA state, and stable `data-ui`
+attributes. Visual class names are implementation details and must not become a
+test API.

@@ -2,7 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
-import "./styles.css";
+import { TooltipProvider } from "./ui/controls.js";
+import "./app.css";
 
 const root = document.getElementById("root");
 if (root === null) {
@@ -11,6 +12,8 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <TooltipProvider delayDuration={350} skipDelayDuration={150}>
+      <App />
+    </TooltipProvider>
   </StrictMode>,
 );

@@ -8,6 +8,8 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 
+import { Minus, Plus, RotateCcw } from "lucide-react";
+
 import { CoreAction, type TraceRecord } from "@ai-mesh/protocol";
 import type { RoomSnapshot } from "@ai-mesh/application";
 
@@ -24,6 +26,7 @@ import {
   packTimelineLabelCenters,
   type ActivityTimelineScale,
 } from "../shared/timeline-layout.js";
+import { IconButton, TabList } from "./ui/controls.js";
 
 type TraceView = "timeline" | "events";
 
@@ -63,7 +66,7 @@ export function TrajectoryView({
   const issueCount = projection.issues.length + statusIssues;
 
   return (
-    <section className="trajectory-workspace" aria-label="运行轨迹">
+    <section className="trajectory-workspace" aria-label="运行轨迹" data-ui="trajectory-view">
       <header className="trajectory-heading">
         <div>
           <div className="trajectory-title-row">
@@ -78,25 +81,16 @@ export function TrajectoryView({
           {issueCount === 0 ? null : <span className="warning"><b>{issueCount}</b> 需关注</span>}
         </div>
       </header>
-      <div className="trajectory-view-tabs" role="tablist" aria-label="轨迹视图">
-        <button
-          type="button"
-          className={view === "timeline" ? "active" : ""}
-          onClick={() => setView("timeline")}
-          role="tab"
-          aria-selected={view === "timeline"}
-        >
-          时间轴 <span>{projection.turns.length + projection.room.length}</span>
-        </button>
-        <button
-          type="button"
-          className={view === "events" ? "active" : ""}
-          onClick={() => setView("events")}
-          role="tab"
-          aria-selected={view === "events"}
-        >
-          原始事件 <span>{records.length}</span>
-        </button>
+      <div className="trajectory-view-tabs" data-ui="trajectory-tabs">
+        <TabList
+          value={view}
+          onValueChange={setView}
+          ariaLabel="轨迹视图"
+          items={[
+            { value: "timeline", label: <>时间轴 <span>{projection.turns.length + projection.room.length}</span></> },
+            { value: "events", label: <>原始事件 <span>{records.length}</span></> },
+          ]}
+        />
         <small>{view === "timeline" ? "Agent 运行期按实时时长 · 长空闲已折叠" : "最新事件在上"}</small>
       </div>
       {view === "timeline" ? (
@@ -225,20 +219,20 @@ function TimelineWorkbench({
             <span className="commit">提交对应</span>
           </div>
           <div className="timeline-zoom" role="group" aria-label="时间轴缩放">
-            <button
-              type="button"
+            <IconButton
               disabled={zoom <= 1}
               onClick={() => zoomTo(zoom / 1.25)}
-              aria-label="缩小活动轴"
-            >−</button>
+              label="缩小活动轴"
+            ><Minus className="size-3.5" /></IconButton>
             <output>{Math.round(zoom * 100)}%</output>
-            <button
-              type="button"
+            <IconButton
               disabled={zoom >= 4}
               onClick={() => zoomTo(zoom * 1.25)}
-              aria-label="放大活动轴"
-            >＋</button>
-            <button type="button" disabled={zoom === 1} onClick={() => zoomTo(1)}>重置</button>
+              label="放大活动轴"
+            ><Plus className="size-3.5" /></IconButton>
+            <IconButton label="重置活动轴" disabled={zoom === 1} onClick={() => zoomTo(1)}>
+              <RotateCcw className="size-3.5" />
+            </IconButton>
           </div>
         </div>
         <TimelineChart
