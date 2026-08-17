@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { dialog, ipcMain } from "electron";
 
 import type { MessageAttention } from "@ai-mesh/protocol";
 
@@ -7,6 +7,12 @@ import type { DesktopWorkspaceHost } from "./workspace-host.js";
 
 const requestChannels = Object.freeze([
   desktopChannels.snapshot,
+  desktopChannels.workspaceCatalog,
+  desktopChannels.chooseWorkspaceDirectory,
+  desktopChannels.openWorkspace,
+  desktopChannels.createSession,
+  desktopChannels.selectSession,
+  desktopChannels.archiveSession,
   desktopChannels.configPreview,
   desktopChannels.saveConfig,
   desktopChannels.reloadConfig,
@@ -19,9 +25,39 @@ const requestChannels = Object.freeze([
   desktopChannels.startAvailableAgents,
 ]);
 
+export interface DesktopIpcOptions {
+  readonly chooseWorkspaceDirectory?: () => Promise<string | undefined>;
+}
+
 /** Register the Electron transport for the browser-safe application contract. */
-export function registerDesktopIpc(host: DesktopWorkspaceHost): () => void {
+export function registerDesktopIpc(
+  host: DesktopWorkspaceHost,
+  options: DesktopIpcOptions = {},
+): () => void {
   ipcMain.handle(desktopChannels.snapshot, () => host.run((workspace) => workspace.snapshot()));
+  ipcMain.handle(desktopChannels.workspaceCatalog, () => host.catalog());
+  ipcMain.handle(desktopChannels.chooseWorkspaceDirectory, async () => {
+    const root = options.chooseWorkspaceDirectory === undefined
+      ? await chooseNativeWorkspaceDirectory()
+      : await options.chooseWorkspaceDirectory();
+    return root === undefined ? null : { root };
+  });
+  ipcMain.handle(
+    desktopChannels.openWorkspace,
+    (_event, input: Parameters<DesktopApi["openWorkspace"]>[0]) => host.openWorkspace(input),
+  );
+  ipcMain.handle(
+    desktopChannels.createSession,
+    (_event, input: Parameters<DesktopApi["createSession"]>[0]) => host.createSession(input),
+  );
+  ipcMain.handle(
+    desktopChannels.selectSession,
+    (_event, input: Parameters<DesktopApi["selectSession"]>[0]) => host.selectSession(input),
+  );
+  ipcMain.handle(
+    desktopChannels.archiveSession,
+    (_event, input: Parameters<DesktopApi["archiveSession"]>[0]) => host.archiveSession(input),
+  );
   ipcMain.handle(desktopChannels.configPreview, () =>
     host.run((workspace) => workspace.configPreview()),
   );
@@ -119,6 +155,15 @@ export function registerDesktopIpc(host: DesktopWorkspaceHost): () => void {
       ipcMain.removeHandler(channel);
     }
   };
+}
+
+async function chooseNativeWorkspaceDirectory(): Promise<string | undefined> {
+  const result = await dialog.showOpenDialog({
+    title: "选择 Mesh 项目目录",
+    buttonLabel: "打开项目",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? undefined : result.filePaths[0];
 }
 
 function assertCommitted(

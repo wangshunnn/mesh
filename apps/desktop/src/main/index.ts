@@ -9,6 +9,7 @@ import { DesktopWorkspaceHost } from "./workspace-host.js";
 let workspaceHost: DesktopWorkspaceHost | undefined;
 let mainWindow: BrowserWindow | undefined;
 let unsubscribeWorkspace: (() => void) | undefined;
+let unsubscribeCatalog: (() => void) | undefined;
 let unregisterIpc: (() => void) | undefined;
 
 const workspaceRoot = resolve(process.env.MESH_WORKSPACE_ROOT ?? process.cwd());
@@ -20,6 +21,9 @@ void app
     unregisterIpc = registerDesktopIpc(workspaceHost);
     unsubscribeWorkspace = workspaceHost.subscribe((snapshot) => {
       mainWindow?.webContents.send(desktopChannels.snapshotUpdated, snapshot);
+    });
+    unsubscribeCatalog = workspaceHost.subscribeCatalog((catalog) => {
+      mainWindow?.webContents.send(desktopChannels.workspaceCatalogUpdated, catalog);
     });
     mainWindow = createWindow();
   })
@@ -49,6 +53,8 @@ app.on("before-quit", (event) => {
   workspaceHost = undefined;
   unsubscribeWorkspace?.();
   unsubscribeWorkspace = undefined;
+  unsubscribeCatalog?.();
+  unsubscribeCatalog = undefined;
   unregisterIpc?.();
   unregisterIpc = undefined;
   void closing

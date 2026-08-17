@@ -1,12 +1,25 @@
+import { existsSync } from "node:fs";
+
 import type {
   RoomSnapshot,
+  WorkspaceCatalogView,
   WorkspaceConfigPreview,
   WorkspaceConfigSaveInput,
   WorkspaceConfigWriteResult,
+  WorkspaceSelectionView,
 } from "@ai-mesh/application";
-import { MeshWorkspace, previewWorkspaceConfig, saveWorkspaceConfig } from "@ai-mesh/workspace";
+import {
+  MeshWorkspace,
+  archiveRegisteredWorkspaceSession,
+  listRegisteredWorkspaceSessions,
+  listWorkspaceRegistrations,
+  previewWorkspaceConfig,
+  resolveWorkspaceRoot,
+  saveWorkspaceConfig,
+} from "@ai-mesh/workspace";
 
 type SnapshotListener = (snapshot: RoomSnapshot) => void;
+type CatalogListener = (catalog: WorkspaceCatalogView) => void;
 
 /**
  * Owns the replaceable workspace composition used by Electron IPC.
@@ -15,21 +28,20 @@ type SnapshotListener = (snapshot: RoomSnapshot) => void;
  * or mutate a workspace while it is closing.
  */
 export class DesktopWorkspaceHost {
-  readonly root: string;
   readonly meshHome: string;
-  readonly sessionId: string;
 
   readonly #listeners = new Set<SnapshotListener>();
+  readonly #catalogListeners = new Set<CatalogListener>();
   #workspace: MeshWorkspace | undefined;
   #unsubscribeWorkspace: (() => void) | undefined;
+  #catalogTimer: ReturnType<typeof setTimeout> | undefined;
   #tail: Promise<void> = Promise.resolve();
   #closing = false;
 
   private constructor(workspace: MeshWorkspace) {
-    this.root = workspace.root;
     this.meshHome = workspace.meshHome;
-    this.sessionId = workspace.sessionId;
     this.#install(workspace);
+    this.#archiveRedundantBlankSessions();
   }
 
   static open(
@@ -50,6 +62,124 @@ export class DesktopWorkspaceHost {
     return this.#enqueue(() => operation(this.#requireWorkspace()));
   }
 
+  catalog(): Promise<WorkspaceCatalogView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(() => this.#catalog());
+  }
+
+  openWorkspace(input: { readonly root: string }): Promise<WorkspaceSelectionView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(async () => {
+      const root = resolveWorkspaceRoot(input.root);
+      const active = this.#requireWorkspace();
+      if (active.root === root) return this.#selection();
+      return this.#replaceWorkspace(active, { root, meshHome: this.meshHome });
+    });
+  }
+
+  createSession(input: { readonly workspaceId: string }): Promise<WorkspaceSelectionView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(async () => {
+      const registration = this.#registration(input.workspaceId);
+      this.#assertRootAvailable(registration.root);
+      const active = this.#requireWorkspace();
+      const blankSession = listRegisteredWorkspaceSessions({
+        workspaceId: registration.id,
+        meshHome: this.meshHome,
+      }).find((session) => session.status === "ok"
+        && !session.archived
+        && (active.workspaceId === registration.id && active.sessionId === session.id
+          ? active.snapshot().messages.length === 0
+          : session.messageCount === 0));
+      if (blankSession !== undefined) {
+        if (active.workspaceId === registration.id && active.sessionId === blankSession.id) {
+          return this.#selection();
+        }
+        return this.#replaceWorkspace(active, {
+          root: registration.root,
+          meshHome: this.meshHome,
+          sessionId: blankSession.id,
+        });
+      }
+      return this.#replaceWorkspace(active, {
+        root: registration.root,
+        meshHome: this.meshHome,
+        createSession: true,
+      });
+    });
+  }
+
+  selectSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+  }): Promise<WorkspaceSelectionView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(async () => {
+      const registration = this.#registration(input.workspaceId);
+      this.#assertRootAvailable(registration.root);
+      const session = listRegisteredWorkspaceSessions({
+        workspaceId: registration.id,
+        meshHome: this.meshHome,
+      }).find((candidate) => candidate.id === input.sessionId);
+      if (session === undefined) {
+        throw new Error(`Unknown Mesh session ${input.sessionId} for workspace ${registration.id}.`);
+      }
+      if (session.status !== "ok") {
+        throw new Error(`Cannot open ${session.title}: ${session.detail ?? `session is ${session.status}`}.`);
+      }
+      const active = this.#requireWorkspace();
+      if (active.workspaceId === registration.id && active.sessionId === session.id) {
+        return this.#selection();
+      }
+      return this.#replaceWorkspace(active, {
+        root: registration.root,
+        meshHome: this.meshHome,
+        sessionId: session.id,
+      });
+    });
+  }
+
+  archiveSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+  }): Promise<WorkspaceCatalogView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(() => {
+      const active = this.#requireWorkspace();
+      if (active.workspaceId === input.workspaceId && active.sessionId === input.sessionId) {
+        throw new Error("当前会话不能删除，请先切换到其他会话。");
+      }
+      const session = listRegisteredWorkspaceSessions({
+        workspaceId: input.workspaceId,
+        meshHome: this.meshHome,
+      }).find((candidate) => candidate.id === input.sessionId);
+      if (session === undefined || session.archived) {
+        throw new Error(`Unknown Mesh session ${input.sessionId} for workspace ${input.workspaceId}.`);
+      }
+      if (session.status !== "ok" || session.messageCount !== 0) {
+        throw new Error("目前仅支持删除没有消息的历史空会话。");
+      }
+      archiveRegisteredWorkspaceSession({
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        meshHome: this.meshHome,
+      });
+      const catalog = this.#catalog();
+      this.#publishCatalog(catalog);
+      return catalog;
+    });
+  }
+
   saveConfig(input: WorkspaceConfigSaveInput): Promise<WorkspaceConfigWriteResult> {
     if (this.#closing) {
       return Promise.reject(new Error("Desktop workspace is closing."));
@@ -60,7 +190,7 @@ export class DesktopWorkspaceHost {
       const written = saveWorkspaceConfig({
         workspaceId: previous.workspaceId,
         sessionId: previous.sessionId,
-        root: this.root,
+        root: active.root,
         meshHome: this.meshHome,
         config: input.config,
         expectedRevision: input.expectedRevision,
@@ -78,18 +208,18 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
+        this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
       } catch (reloadError) {
         try {
           saveWorkspaceConfig({
             workspaceId: previous.workspaceId,
             sessionId: previous.sessionId,
-            root: this.root,
+            root: active.root,
             meshHome: this.meshHome,
             config: previous.config,
             expectedRevision: written.revision,
           });
-          this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
+          this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
         } catch (recoveryError) {
           throw new AggregateError(
             [reloadError, recoveryError],
@@ -103,6 +233,7 @@ export class DesktopWorkspaceHost {
       }
 
       this.#publish(this.#requireWorkspace().snapshot());
+      this.#publishCatalog(this.#catalog());
       if (closeError !== undefined) {
         throw new Error(
           "The configuration was saved and reloaded, but the previous workspace did not close cleanly.",
@@ -119,8 +250,8 @@ export class DesktopWorkspaceHost {
     }
     return this.#enqueue(async () => {
       // Validate the current file before giving up the known-good live composition.
-      previewWorkspaceConfig({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId });
       const active = this.#requireWorkspace();
+      previewWorkspaceConfig({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId });
       const previous = active.configPreview();
       this.#detach();
       this.#workspace = undefined;
@@ -131,14 +262,14 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: this.root, meshHome: this.meshHome, sessionId: this.sessionId }));
+        this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
       } catch (reloadError) {
         try {
           this.#install(
             MeshWorkspace.open({
-              root: this.root,
+              root: active.root,
               meshHome: this.meshHome,
-              sessionId: this.sessionId,
+              sessionId: active.sessionId,
               config: previous.config,
               persistDefaultConfig: false,
             }),
@@ -156,6 +287,7 @@ export class DesktopWorkspaceHost {
       }
       const workspace = this.#requireWorkspace();
       this.#publish(workspace.snapshot());
+      this.#publishCatalog(this.#catalog());
       if (closeError !== undefined) {
         throw new Error(
           "The disk configuration was reloaded, but the previous workspace did not close cleanly.",
@@ -171,6 +303,11 @@ export class DesktopWorkspaceHost {
     return () => this.#listeners.delete(listener);
   }
 
+  subscribeCatalog(listener: CatalogListener): () => void {
+    this.#catalogListeners.add(listener);
+    return () => this.#catalogListeners.delete(listener);
+  }
+
   close(): Promise<void> {
     if (this.#closing) {
       return this.#tail;
@@ -178,10 +315,13 @@ export class DesktopWorkspaceHost {
     this.#closing = true;
     return this.#enqueue(async () => {
       const active = this.#workspace;
+      if (this.#catalogTimer !== undefined) clearTimeout(this.#catalogTimer);
+      this.#catalogTimer = undefined;
       this.#detach();
       this.#workspace = undefined;
       await active?.close();
       this.#listeners.clear();
+      this.#catalogListeners.clear();
     });
   }
 
@@ -196,7 +336,10 @@ export class DesktopWorkspaceHost {
 
   #install(workspace: MeshWorkspace): void {
     this.#workspace = workspace;
-    this.#unsubscribeWorkspace = workspace.subscribe((snapshot) => this.#publish(snapshot));
+    this.#unsubscribeWorkspace = workspace.subscribe((snapshot) => {
+      this.#publish(snapshot);
+      this.#scheduleCatalogPublish();
+    });
   }
 
   #detach(): void {
@@ -212,6 +355,155 @@ export class DesktopWorkspaceHost {
         console.error("Desktop workspace snapshot listener failed:", error);
       }
     }
+  }
+
+  #publishCatalog(catalog: WorkspaceCatalogView): void {
+    for (const listener of this.#catalogListeners) {
+      try {
+        listener(catalog);
+      } catch (error) {
+        console.error("Desktop workspace catalog listener failed:", error);
+      }
+    }
+  }
+
+  #scheduleCatalogPublish(): void {
+    if (this.#catalogTimer !== undefined || this.#closing) return;
+    this.#catalogTimer = setTimeout(() => {
+      this.#catalogTimer = undefined;
+      if (!this.#closing && this.#workspace !== undefined) this.#publishCatalog(this.#catalog());
+    }, 80);
+    this.#catalogTimer.unref?.();
+  }
+
+  #archiveRedundantBlankSessions(): void {
+    const active = this.#requireWorkspace();
+    const activeIsBlank = active.snapshot().messages.length === 0;
+    for (const registration of listWorkspaceRegistrations({ meshHome: this.meshHome })) {
+      const blankSessions = listRegisteredWorkspaceSessions({
+        workspaceId: registration.id,
+        meshHome: this.meshHome,
+      }).filter((session) => session.status === "ok"
+        && !session.archived
+        && (registration.id === active.workspaceId && session.id === active.sessionId
+          ? activeIsBlank
+          : session.messageCount === 0));
+      if (blankSessions.length < 2) continue;
+      const keeper = blankSessions.find((session) => registration.id === active.workspaceId
+        && session.id === active.sessionId) ?? blankSessions[0];
+      for (const session of blankSessions) {
+        if (session.id === keeper?.id) continue;
+        archiveRegisteredWorkspaceSession({
+          workspaceId: registration.id,
+          sessionId: session.id,
+          meshHome: this.meshHome,
+        });
+      }
+    }
+  }
+
+  #catalog(): WorkspaceCatalogView {
+    const active = this.#requireWorkspace();
+    return Object.freeze({
+      activeWorkspaceId: active.workspaceId,
+      activeSessionId: active.sessionId,
+      workspaces: Object.freeze(listWorkspaceRegistrations({ meshHome: this.meshHome }).map((workspace) => {
+        const available = existsSync(workspace.root);
+        return Object.freeze({
+          id: workspace.id,
+          name: workspace.name,
+          root: workspace.root,
+          status: available ? "available" as const : "missing" as const,
+          createdAt: workspace.createdAt,
+          updatedAt: workspace.updatedAt,
+          lastOpenedAt: workspace.lastOpenedAt,
+          sessions: Object.freeze(listRegisteredWorkspaceSessions({
+            workspaceId: workspace.id,
+            meshHome: this.meshHome,
+          }).filter((session) => !session.archived).map((session) => Object.freeze({
+            id: session.id,
+            workspaceId: session.workspaceId,
+            status: session.status,
+            title: session.title,
+            preview: session.preview,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+            headSequence: session.headSequence,
+            messageCount: session.messageCount,
+            archived: session.archived,
+            ...(session.detail === undefined ? {} : { detail: session.detail }),
+          }))),
+          ...(available ? {} : { detail: "Project directory is missing or unavailable." }),
+        });
+      })),
+    });
+  }
+
+  #selection(): WorkspaceSelectionView {
+    const workspace = this.#requireWorkspace();
+    return Object.freeze({
+      catalog: this.#catalog(),
+      snapshot: workspace.snapshot(),
+      configPreview: workspace.configPreview(),
+    });
+  }
+
+  async #replaceWorkspace(
+    active: MeshWorkspace,
+    options: Parameters<typeof MeshWorkspace.open>[0],
+  ): Promise<WorkspaceSelectionView> {
+    const previous = Object.freeze({
+      root: active.root,
+      meshHome: active.meshHome,
+      sessionId: active.sessionId,
+    });
+    this.#detach();
+    this.#workspace = undefined;
+    let closeError: unknown;
+    try {
+      await active.close();
+    } catch (error) {
+      closeError = error;
+    }
+
+    try {
+      this.#install(MeshWorkspace.open(options));
+    } catch (openError) {
+      try {
+        this.#install(MeshWorkspace.open(previous));
+      } catch (recoveryError) {
+        throw new AggregateError(
+          [openError, recoveryError],
+          "Could not open the selected workspace session or restore the previous session.",
+        );
+      }
+      throw new Error(
+        "Could not open the selected workspace session. The previous session remains active.",
+        { cause: openError },
+      );
+    }
+
+    const selection = this.#selection();
+    this.#publish(selection.snapshot);
+    this.#publishCatalog(selection.catalog);
+    if (closeError !== undefined) {
+      throw new Error(
+        "The selected workspace session opened, but the previous session did not close cleanly.",
+        { cause: closeError },
+      );
+    }
+    return selection;
+  }
+
+  #registration(workspaceId: string) {
+    const registration = listWorkspaceRegistrations({ meshHome: this.meshHome })
+      .find((workspace) => workspace.id === workspaceId);
+    if (registration === undefined) throw new Error(`Unknown Mesh workspace ${workspaceId}.`);
+    return registration;
+  }
+
+  #assertRootAvailable(root: string): void {
+    if (!existsSync(root)) throw new Error(`Project directory is missing or unavailable: ${root}`);
   }
 
   #requireWorkspace(): MeshWorkspace {

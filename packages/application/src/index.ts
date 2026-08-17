@@ -113,6 +113,56 @@ export interface WorkspaceConfigSaveInput {
   readonly config: WorkspaceConfig;
 }
 
+export type WorkspaceRootStatus = "available" | "missing";
+export type WorkspaceSessionStatus = "ok" | "missing" | "corrupt";
+
+/** Browser-safe cold projection of one Room-backed local session. */
+export interface WorkspaceSessionSummaryView {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly status: WorkspaceSessionStatus;
+  readonly title: string;
+  readonly preview: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly headSequence: number;
+  readonly messageCount: number;
+  readonly archived: boolean;
+  readonly detail?: string;
+}
+
+/** Browser-safe projection of one registered project and its ordered sessions. */
+export interface WorkspaceSummaryView {
+  readonly id: string;
+  readonly name: string;
+  readonly root: string;
+  readonly status: WorkspaceRootStatus;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastOpenedAt: string;
+  readonly sessions: readonly WorkspaceSessionSummaryView[];
+  readonly detail?: string;
+}
+
+/** Complete machine-local catalog projection presented to product clients. */
+export interface WorkspaceCatalogView {
+  readonly activeWorkspaceId: string;
+  readonly activeSessionId: string;
+  readonly workspaces: readonly WorkspaceSummaryView[];
+}
+
+/** State returned after one serialized workspace/session transition. */
+export interface WorkspaceSelectionView {
+  readonly catalog: WorkspaceCatalogView;
+  readonly snapshot: RoomSnapshot;
+  readonly configPreview: WorkspaceConfigPreview;
+}
+
+/** Result of a client-native project directory picker. */
+export interface WorkspaceDirectorySelectionView {
+  readonly root: string;
+}
+
 export type AgentAction = "start" | "stop" | "restart" | "wake";
 
 export interface AgentProbeView {
@@ -130,6 +180,18 @@ export interface AgentProbeView {
  */
 export interface MeshClient {
   snapshot(): Promise<RoomSnapshot>;
+  workspaceCatalog(): Promise<WorkspaceCatalogView>;
+  chooseWorkspaceDirectory(): Promise<WorkspaceDirectorySelectionView | null>;
+  openWorkspace(input: { readonly root: string }): Promise<WorkspaceSelectionView>;
+  createSession(input: { readonly workspaceId: string }): Promise<WorkspaceSelectionView>;
+  selectSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+  }): Promise<WorkspaceSelectionView>;
+  archiveSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+  }): Promise<WorkspaceCatalogView>;
   configPreview(): Promise<WorkspaceConfigPreview>;
   saveConfig(input: WorkspaceConfigSaveInput): Promise<WorkspaceConfigWriteResult>;
   reloadConfig(): Promise<WorkspaceConfigPreview>;
@@ -144,4 +206,5 @@ export interface MeshClient {
   probeAgents(): Promise<readonly AgentProbeView[]>;
   startAvailableAgents(): Promise<RoomSnapshot>;
   onSnapshot(listener: (snapshot: RoomSnapshot) => void): () => void;
+  onWorkspaceCatalog(listener: (catalog: WorkspaceCatalogView) => void): () => void;
 }

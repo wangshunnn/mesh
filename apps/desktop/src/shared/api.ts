@@ -7,10 +7,17 @@ export type { AgentAction } from "@ai-mesh/application";
 
 export const desktopChannels = Object.freeze({
   snapshot: "mesh:snapshot",
+  workspaceCatalog: "mesh:workspace-catalog",
+  chooseWorkspaceDirectory: "mesh:choose-workspace-directory",
+  openWorkspace: "mesh:open-workspace",
+  createSession: "mesh:create-session",
+  selectSession: "mesh:select-session",
+  archiveSession: "mesh:archive-session",
   configPreview: "mesh:config-preview",
   saveConfig: "mesh:save-config",
   reloadConfig: "mesh:reload-config",
   snapshotUpdated: "mesh:snapshot-updated",
+  workspaceCatalogUpdated: "mesh:workspace-catalog-updated",
   postMessage: "mesh:post-message",
   createTask: "mesh:create-task",
   claimTask: "mesh:claim-task",

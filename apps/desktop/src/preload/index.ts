@@ -8,6 +8,18 @@ import {
 
 const api: DesktopApi = Object.freeze({
   snapshot: () => ipcRenderer.invoke(desktopChannels.snapshot) as Promise<Awaited<ReturnType<DesktopApi["snapshot"]>>>,
+  workspaceCatalog: () =>
+    ipcRenderer.invoke(desktopChannels.workspaceCatalog) as Promise<Awaited<ReturnType<DesktopApi["workspaceCatalog"]>>>,
+  chooseWorkspaceDirectory: () =>
+    ipcRenderer.invoke(desktopChannels.chooseWorkspaceDirectory) as Promise<Awaited<ReturnType<DesktopApi["chooseWorkspaceDirectory"]>>>,
+  openWorkspace: (input: Parameters<DesktopApi["openWorkspace"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.openWorkspace, input) as Promise<Awaited<ReturnType<DesktopApi["openWorkspace"]>>>,
+  createSession: (input: Parameters<DesktopApi["createSession"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.createSession, input) as Promise<Awaited<ReturnType<DesktopApi["createSession"]>>>,
+  selectSession: (input: Parameters<DesktopApi["selectSession"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.selectSession, input) as Promise<Awaited<ReturnType<DesktopApi["selectSession"]>>>,
+  archiveSession: (input: Parameters<DesktopApi["archiveSession"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.archiveSession, input) as Promise<Awaited<ReturnType<DesktopApi["archiveSession"]>>>,
   configPreview: () =>
     ipcRenderer.invoke(desktopChannels.configPreview) as Promise<Awaited<ReturnType<DesktopApi["configPreview"]>>>,
   saveConfig: (input: Parameters<DesktopApi["saveConfig"]>[0]) =>
@@ -34,6 +46,13 @@ const api: DesktopApi = Object.freeze({
     };
     ipcRenderer.on(desktopChannels.snapshotUpdated, handler);
     return () => ipcRenderer.removeListener(desktopChannels.snapshotUpdated, handler);
+  },
+  onWorkspaceCatalog: (listener: Parameters<DesktopApi["onWorkspaceCatalog"]>[0]) => {
+    const handler = (_event: Electron.IpcRendererEvent, catalog: Parameters<typeof listener>[0]) => {
+      listener(catalog);
+    };
+    ipcRenderer.on(desktopChannels.workspaceCatalogUpdated, handler);
+    return () => ipcRenderer.removeListener(desktopChannels.workspaceCatalogUpdated, handler);
   },
 });
 
