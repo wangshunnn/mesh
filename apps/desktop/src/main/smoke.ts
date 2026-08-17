@@ -279,7 +279,12 @@ async function runSmoke(): Promise<void> {
         leftSidebarToggle.click();
         await waitFor(() => document.querySelector('.workspace-sidebar')?.classList.contains('collapsed') === true, "left sidebar did not collapse");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const collapsedLeftWidth = document.querySelector('.workspace-main')?.getBoundingClientRect().left ?? -1;
+        const collapsedMainRect = document.querySelector('.workspace-main')?.getBoundingClientRect();
+        const collapsedGridRect = document.querySelector('.workspace-grid')?.getBoundingClientRect();
+        const collapsedViewportWidth = document.documentElement.clientWidth;
+        const collapsedLeftWidth = collapsedMainRect?.left ?? -1;
+        const collapsedMainWidth = collapsedMainRect?.width ?? 0;
+        const collapsedGridWidth = collapsedGridRect?.width ?? 0;
         const collapsedSidebarOverlayWidth = document.querySelector('.workspace-sidebar')?.getBoundingClientRect().width ?? 0;
         const collapsedToggleRect = leftSidebarToggle.getBoundingClientRect();
         const collapsedToggleHitTarget = document.elementFromPoint(
@@ -362,6 +367,9 @@ async function runSmoke(): Promise<void> {
           finalWorkspaceId: finalCatalog.activeWorkspaceId,
           finalSessionId: finalCatalog.activeSessionId,
           collapsedLeftWidth,
+          collapsedMainWidth,
+          collapsedGridWidth,
+          collapsedViewportWidth,
           collapsedSidebarOverlayWidth,
           collapsedToggleHitTarget,
           expandedLeftWidth,
@@ -411,6 +419,9 @@ async function runSmoke(): Promise<void> {
       readonly finalWorkspaceId: string;
       readonly finalSessionId: string;
       readonly collapsedLeftWidth: number;
+      readonly collapsedMainWidth: number;
+      readonly collapsedGridWidth: number;
+      readonly collapsedViewportWidth: number;
       readonly collapsedSidebarOverlayWidth: number;
       readonly collapsedToggleHitTarget: boolean;
       readonly expandedLeftWidth: number;
@@ -458,6 +469,8 @@ async function runSmoke(): Promise<void> {
       navigation.finalWorkspaceId !== navigation.firstWorkspaceId ||
       navigation.finalSessionId !== navigation.firstSessionId ||
       navigation.collapsedLeftWidth !== 0 ||
+      navigation.collapsedMainWidth !== navigation.collapsedViewportWidth ||
+      navigation.collapsedGridWidth !== navigation.collapsedViewportWidth ||
       navigation.collapsedSidebarOverlayWidth !== 148 ||
       !navigation.collapsedToggleHitTarget ||
       navigation.expandedLeftWidth < 240 ||
@@ -522,6 +535,22 @@ async function runSmoke(): Promise<void> {
             sidebarWidth: sidebar?.getBoundingClientRect().width ?? 0,
             chatWidth: document.querySelector(".chat-column")?.getBoundingClientRect().width ?? 0
           };
+          const leftSidebarToggle = document.querySelector(".left-sidebar-toggle");
+          if (!(leftSidebarToggle instanceof HTMLButtonElement)) throw new Error("left sidebar toggle is missing");
+          leftSidebarToggle.click();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const collapsedMain = document.querySelector(".workspace-main");
+          const collapsedGrid = document.querySelector(".workspace-grid");
+          const collapsedRoomLayout = {
+            collapsedSidebarActive: document.querySelector(".workspace-sidebar")?.classList.contains("collapsed") === true,
+            collapsedDocumentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            collapsedMainLeft: collapsedMain?.getBoundingClientRect().left ?? -1,
+            collapsedMainWidth: collapsedMain?.getBoundingClientRect().width ?? 0,
+            collapsedGridWidth: collapsedGrid?.getBoundingClientRect().width ?? 0,
+            collapsedChatWidth: document.querySelector(".chat-column")?.getBoundingClientRect().width ?? 0
+          };
+          leftSidebarToggle.click();
+          await new Promise((resolve) => setTimeout(resolve, 250));
           const configButton = [...document.querySelectorAll(".breadcrumb button")].find(
             (button) => button.textContent?.trim() === "配置"
           );
@@ -536,6 +565,7 @@ async function runSmoke(): Promise<void> {
             height: window.innerHeight,
             documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
             ...roomLayout,
+            ...collapsedRoomLayout,
             configViewOverflow: configView === null ? true : configView.scrollWidth > configView.clientWidth,
             configScrollOverflow: configScroll === null ? true : configScroll.scrollWidth > configScroll.clientWidth,
             minimumCardWidth: cards.length === 0 ? 0 : Math.min(...cards.map((card) => card.getBoundingClientRect().width))
@@ -552,6 +582,12 @@ async function runSmoke(): Promise<void> {
       readonly minimumSessionWidth: number;
       readonly sidebarWidth: number;
       readonly chatWidth: number;
+      readonly collapsedSidebarActive: boolean;
+      readonly collapsedDocumentOverflow: boolean;
+      readonly collapsedMainLeft: number;
+      readonly collapsedMainWidth: number;
+      readonly collapsedGridWidth: number;
+      readonly collapsedChatWidth: number;
       readonly configViewOverflow: boolean;
       readonly configScrollOverflow: boolean;
       readonly minimumCardWidth: number;
@@ -567,6 +603,12 @@ async function runSmoke(): Promise<void> {
         layout.minimumSessionWidth < 180 ||
         layout.sidebarWidth < 220 ||
         layout.chatWidth < 400 ||
+        !layout.collapsedSidebarActive ||
+        layout.collapsedDocumentOverflow ||
+        layout.collapsedMainLeft !== 0 ||
+        layout.collapsedMainWidth !== layout.width ||
+        layout.collapsedGridWidth !== layout.width ||
+        layout.collapsedChatWidth <= layout.chatWidth ||
         layout.configViewOverflow ||
         layout.configScrollOverflow ||
         layout.minimumCardWidth < 300
@@ -590,6 +632,21 @@ async function runSmoke(): Promise<void> {
           join(screenshotDirectory, `workspace-${String(size.width)}x${String(size.height)}.png`),
           workspaceScreenshot.toPNG(),
         );
+        await window.webContents.executeJavaScript(
+          `(document.querySelector(".left-sidebar-toggle"))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const collapsedWorkspaceScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `workspace-left-collapsed-${String(size.width)}x${String(size.height)}.png`),
+          collapsedWorkspaceScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `(document.querySelector(".left-sidebar-toggle"))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
     console.log(
