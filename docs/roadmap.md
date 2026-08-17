@@ -2,11 +2,10 @@
 
 Last updated: **2026-08-17**
 
-Latest verified increment: **GUI workspace/session navigation and Codex/DSH-style
-desktop shell refinement in the working tree based on `911c4fe`** (implementation
-commit pending)
+Latest verified increment: **Tailwind/Radix/Lucide desktop renderer foundation
+at `79f53d9`**
 
-Current position: **Phase 2A verified; Phase 3A GUI workspace/session navigation is verified and Agent onboarding diagnostics are next**
+Current position: **Phase 2A verified; Phase 3A navigation and renderer foundation are verified, and Agent onboarding diagnostics are next**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -264,6 +263,27 @@ Status: **verified in the working tree based on `911c4fe` on 2026-08-17**.
 
 This increment does not introduce provider/model schema changes, Agent-list
 mutation, multi-Room/thread navigation, or a central speaker scheduler.
+
+#### Follow-up increment — Desktop renderer foundation
+
+Status: **verified at `79f53d9` on 2026-08-17**.
+
+- [x] Integrate Tailwind CSS v4 through a dedicated renderer Vite configuration
+- [x] Define a semantic light theme for the Codex-aligned 14/12/11 px hierarchy,
+  neutral palette, and established sidebar/title-bar dimensions
+- [x] Use Radix tabs, collapsibles, dropdown menus, selects, switches, tooltips,
+  portals, keyboard navigation, and focus restoration
+- [x] Replace general-purpose inline SVG glyphs with Lucide React icons
+- [x] Split renderer orchestration, preview fixtures, workspace navigation, Room
+  UI, formatting, reusable controls, and trajectory-specific styling
+- [x] Replace visual-class smoke selectors with ARIA state and stable `data-ui`
+  hooks while retaining the complete navigation/configuration acceptance flow
+- [x] Extend 1440×900 and 1040×680 visual QA across Room, configuration, open
+  Select, timeline, raw events, and both collapsed sidebars
+
+This increment changes only the renderer implementation and visual foundation;
+the browser-safe client contract, typed IPC, Room semantics, config-v1, storage,
+and Agent lifecycle remain unchanged.
 
 #### Next increment — Agent onboarding diagnostics
 

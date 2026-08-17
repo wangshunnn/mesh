@@ -6,9 +6,8 @@ Implementation branch: **`main`**
 
 Verified committed implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
 
-Latest verified increment: **GUI workspace/session navigation and Codex/DSH-style
-desktop shell refinement in the working tree based on `911c4fe`** (implementation
-commit pending)
+Latest verified increment: **Tailwind/Radix/Lucide desktop renderer foundation
+at `79f53d9`**
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -71,6 +70,16 @@ path physically deletes Room data. Conversation members live in the right panel.
 The renderer now uses the Codex system-font stack, 14/12/11 px type hierarchy,
 and neutral gray palette. Room identity, shared-history semantics, Agent actions,
 and diagnostic boundaries are unchanged by this visual refinement.
+
+The Desktop renderer now uses Tailwind CSS v4 through its official Vite plugin,
+Radix Primitives for tabs, collapsibles, menus, selects, switches, portals,
+tooltips, keyboard navigation, and focus restoration, and Lucide React for
+general-purpose icons. The former layered global stylesheet is replaced by one
+semantic light-theme entry plus an isolated causal-trajectory CSS layer.
+Renderer orchestration, preview fixtures, Room UI, workspace navigation,
+formatting, and reusable controls are split into focused modules. Smoke tests use
+ARIA state and stable `data-ui` hooks instead of treating visual classes as a
+test API. No IPC, Room, configuration, persistence, or Agent behavior changed.
 
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
@@ -322,6 +331,18 @@ Fresh workspace and configuration captures at 1440×900 and 1040×680 verified t
 compact member/task panel and usable chat/config layouts without renderer
 diagnostics, clipping, or horizontal overflow. Workspace switching no longer
 projects its transient disabled state into unrelated renderer controls.
+
+The Tailwind/Radix/Lucide renderer-foundation refactor passed `pnpm verify` on
+2026-08-17. The gate retained all seventeen workspace tests, twenty-one Desktop
+package tests, sixteen collaboration tests, and all six kernel evals. Electron
+smoke verified Radix tabs/selects/switches, keyboard-opened session menus,
+Escape dismissal with trigger-focus restoration, project/session workflows,
+and the existing 275→0 px and 320→48 px panel contracts. Visual QA covered Room,
+configuration, an open Select, causal timeline, raw events, and both collapsed
+sidebars at 1440×900 and 1040×680 without renderer diagnostics, clipping, or
+horizontal overflow. The production renderer changed from 65.13 kB CSS / 271.53
+kB JS to 71.51 kB CSS / 393.11 kB JS before gzip; Radix and Lucide are imported
+through tree-shakeable subpaths.
 
 ## Known limitations
 
