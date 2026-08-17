@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 
 import type {
   RoomSnapshot,
+  WorkspaceCatalogView,
   WorkspaceConfigPreview,
   WorkspaceConfigSaveInput,
   WorkspaceConfigWriteResult,
+  WorkspaceSelectionView,
 } from "@ai-mesh/application";
 import {
   CoreAction,
@@ -27,6 +30,12 @@ const emptySnapshot: RoomSnapshot = Object.freeze({
   timeline: Object.freeze([]),
   trace: Object.freeze([]),
 });
+
+function isWorkspaceTransitionBusy(busy: string | undefined): boolean {
+  return busy === "open-workspace"
+    || busy?.startsWith("create-session:") === true
+    || busy?.startsWith("select-session:") === true;
+}
 
 const previewSnapshot: RoomSnapshot = Object.freeze({
   roomId: "room:mesh-preview",
@@ -339,13 +348,59 @@ const previewConfig: WorkspaceConfigPreview = Object.freeze({
   }),
 });
 
+const previewCatalog: WorkspaceCatalogView = Object.freeze({
+  activeWorkspaceId: previewConfig.workspaceId,
+  activeSessionId: previewConfig.sessionId,
+  workspaces: Object.freeze([
+    Object.freeze({
+      id: previewConfig.workspaceId,
+      name: "mesh",
+      root: previewConfig.root,
+      status: "available",
+      createdAt: "2026-08-17T08:20:00.000Z",
+      updatedAt: "2026-08-17T09:42:00.000Z",
+      lastOpenedAt: "2026-08-17T09:42:00.000Z",
+      sessions: Object.freeze([
+        Object.freeze({
+          id: previewConfig.sessionId,
+          workspaceId: previewConfig.workspaceId,
+          status: "ok",
+          title: "复核登录认证流程",
+          preview: "已基于最新房间状态复核，两处调用关系一致。",
+          createdAt: "2026-08-17T08:20:00.000Z",
+          updatedAt: "2026-08-17T09:42:00.000Z",
+          headSequence: previewSnapshot.headSequence,
+          messageCount: previewSnapshot.messages.length,
+          archived: false,
+        }),
+        Object.freeze({
+          id: "session-preview-empty",
+          workspaceId: previewConfig.workspaceId,
+          status: "ok",
+          title: "New Session",
+          preview: "",
+          createdAt: "2026-08-16T15:10:00.000Z",
+          updatedAt: "2026-08-16T15:10:00.000Z",
+          headSequence: 0,
+          messageCount: 0,
+          archived: false,
+        }),
+      ]),
+    }),
+  ]),
+});
+
 type WorkspaceView = "room" | "trajectory" | "configuration";
+const sidebarSessionLimit = 5;
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<RoomSnapshot>(emptySnapshot);
+  const [catalog, setCatalog] = useState<WorkspaceCatalogView | undefined>();
   const [probes, setProbes] = useState<readonly DesktopAgentProbe[]>([]);
   const [configPreview, setConfigPreview] = useState<WorkspaceConfigPreview | undefined>();
   const [view, setView] = useState<WorkspaceView>("room");
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [busy, setBusy] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -359,6 +414,7 @@ export function App(): React.JSX.Element {
         { id: "agent:codex", available: true, version: "0.146.0" },
       ]);
       setConfigPreview(previewConfig);
+      setCatalog(previewCatalog);
       return () => {
         live = false;
       };
@@ -367,12 +423,14 @@ export function App(): React.JSX.Element {
       window.mesh.snapshot(),
       window.mesh.probeAgents(),
       window.mesh.configPreview(),
+      window.mesh.workspaceCatalog(),
     ])
-      .then(([initial, availability, configuration]) => {
+      .then(([initial, availability, configuration, workspaceCatalog]) => {
         if (live) {
           setSnapshot(initial);
           setProbes(availability);
           setConfigPreview(configuration);
+          setCatalog(workspaceCatalog);
         }
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
@@ -381,9 +439,13 @@ export function App(): React.JSX.Element {
         setSnapshot(next);
       }
     });
+    const unsubscribeCatalog = window.mesh.onWorkspaceCatalog((next) => {
+      if (live) setCatalog(next);
+    });
     return () => {
       live = false;
       unsubscribe();
+      unsubscribeCatalog();
     };
   }, []);
 
@@ -459,55 +521,149 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const transitionWorkspace = async (
+    key: string,
+    operation: () => Promise<WorkspaceSelectionView | undefined>,
+  ): Promise<boolean> => {
+    setBusy(key);
+    setError(undefined);
+    try {
+      if (window.mesh === undefined) {
+        throw new Error("预览模式不能切换工作区或会话，请打开 Electron 应用。");
+      }
+      const selection = await operation();
+      if (selection === undefined) return false;
+      setSnapshot(selection.snapshot);
+      setCatalog(selection.catalog);
+      setConfigPreview(selection.configPreview);
+      setProbes(await window.mesh.probeAgents());
+      setView("room");
+      return true;
+    } catch (caught) {
+      setError(workspaceErrorMessage(caught));
+      return false;
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const openWorkspace = (): void => {
+    void transitionWorkspace("open-workspace", async () => {
+      const selected = await window.mesh.chooseWorkspaceDirectory();
+      return selected === null ? undefined : window.mesh.openWorkspace({ root: selected.root });
+    });
+  };
+
+  const archiveSession = async (workspaceId: string, sessionId: string): Promise<void> => {
+    setBusy(`archive-session:${sessionId}`);
+    setError(undefined);
+    try {
+      if (window.mesh === undefined) {
+        throw new Error("预览模式不能删除会话，请打开 Electron 应用。");
+      }
+      setCatalog(await window.mesh.archiveSession({ workspaceId, sessionId }));
+    } catch (caught) {
+      setError(workspaceErrorMessage(caught));
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const workspaceTransitioning = isWorkspaceTransitionBusy(busy);
+  const runtimeBusy = workspaceTransitioning ? undefined : busy;
+
   return (
-    <main className="shell">
-      <Header snapshot={snapshot} busy={busy} invoke={invoke} view={view} onViewChange={setView} />
-      {error === undefined ? null : (
-        <div className="error-banner" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError(undefined)}>关闭</button>
-        </div>
-      )}
-      <div className={`workspace-grid ${view === "room" ? "" : `${view}-mode`}`}>
-        <AgentRail snapshot={snapshot} probes={probes} busy={busy} invoke={invoke} />
-        {view === "room" ? (
-          <>
-            <section className="chat-column">
-              <div className="section-heading chat-heading">
-                <div>
-                  <div className="room-title-row">
-                    <h1>协作房间</h1>
-                    <span className="shared-state"><i /> 已同步</span>
-                  </div>
-                  <p className="room-description">所有成员共享同一份实时上下文</p>
-                </div>
-                <div className="room-head" title={`当前事件序号 ${String(snapshot.headSequence)}`}>
-                  <span>HEAD</span>
-                  <strong>{snapshot.headSequence}</strong>
-                </div>
-              </div>
-              <MessageList snapshot={snapshot} chatEnd={chatEnd} />
-              <Composer snapshot={snapshot} busy={busy} invoke={invoke} />
-            </section>
-            <aside className="right-column">
-              <div className="panel-tabs">
-                <button type="button" className="active">任务 <span>{snapshot.tasks.length}</span></button>
-              </div>
-            <TaskPanel snapshot={snapshot} busy={busy} invoke={invoke} />
-            </aside>
-          </>
-        ) : view === "trajectory" ? (
-          <TrajectoryView snapshot={snapshot} />
-        ) : (
-          <ConfigurationView
-            preview={configPreview}
-            probes={probes}
-            busy={busy}
-            onSave={saveConfiguration}
-            onReload={reloadConfiguration}
-          />
+    <main
+      className={`shell ${leftSidebarCollapsed ? "left-sidebar-collapsed" : ""} ${workspaceTransitioning ? "workspace-transitioning" : ""}`}
+      aria-busy={workspaceTransitioning}
+    >
+      <WorkspaceSidebar
+        catalog={catalog}
+        busy={busy}
+        collapsed={leftSidebarCollapsed}
+        onToggleCollapsed={() => setLeftSidebarCollapsed((value) => !value)}
+        onOpenWorkspace={openWorkspace}
+        onCreateSession={(workspaceId) => void transitionWorkspace(
+          `create-session:${workspaceId}`,
+          () => window.mesh.createSession({ workspaceId }),
         )}
-      </div>
+        onSelectSession={(workspaceId, sessionId) => void transitionWorkspace(
+          `select-session:${sessionId}`,
+          () => window.mesh.selectSession({ workspaceId, sessionId }),
+        )}
+        onArchiveSession={(workspaceId, sessionId) => void archiveSession(workspaceId, sessionId)}
+      />
+      <section className="workspace-main">
+        <Header
+          snapshot={snapshot}
+          catalog={catalog}
+          busy={runtimeBusy}
+          invoke={invoke}
+          view={view}
+          onViewChange={setView}
+        />
+        {error === undefined ? null : (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError(undefined)}>关闭</button>
+          </div>
+        )}
+        <div className={`workspace-grid ${view === "room" ? (rightSidebarCollapsed ? "right-collapsed" : "") : `${view}-mode`}`}>
+          {view === "room" ? (
+            <>
+              <section className="chat-column">
+                <MessageList snapshot={snapshot} chatEnd={chatEnd} />
+                <Composer snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
+              </section>
+              <aside className={`right-column ${rightSidebarCollapsed ? "collapsed" : ""}`}>
+                <div className="right-sidebar-heading">
+                  {rightSidebarCollapsed ? null : (
+                    <div>
+                      <strong>会话成员</strong>
+                      <span>{snapshot.agents.length + 1}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="right-sidebar-toggle"
+                    title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+                    aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+                    onClick={() => setRightSidebarCollapsed((value) => !value)}
+                  >
+                    <PanelRightIcon />
+                  </button>
+                </div>
+                {rightSidebarCollapsed ? (
+                  <div className="right-sidebar-rail" aria-hidden="true">
+                    <UsersIcon />
+                    <TaskIcon />
+                  </div>
+                ) : (
+                  <>
+                    <AgentRail snapshot={snapshot} probes={probes} busy={runtimeBusy} invoke={invoke} />
+                    <section className="right-task-panel">
+                      <div className="panel-tabs">
+                        <button type="button" className="active">任务 <span>{snapshot.tasks.length}</span></button>
+                      </div>
+                      <TaskPanel snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
+                    </section>
+                  </>
+                )}
+              </aside>
+            </>
+          ) : view === "trajectory" ? (
+            <TrajectoryView snapshot={snapshot} />
+          ) : (
+            <ConfigurationView
+              preview={configPreview}
+              probes={probes}
+              busy={runtimeBusy}
+              onSave={saveConfiguration}
+              onReload={reloadConfiguration}
+            />
+          )}
+        </div>
+      </section>
     </main>
   );
 }
@@ -519,49 +675,368 @@ interface RuntimeProps {
 }
 
 interface HeaderProps extends RuntimeProps {
+  readonly catalog: WorkspaceCatalogView | undefined;
   readonly view: WorkspaceView;
   readonly onViewChange: (view: WorkspaceView) => void;
 }
 
-function Header({ snapshot, busy, invoke, view, onViewChange }: HeaderProps): React.JSX.Element {
+function Header({ snapshot, catalog, busy, invoke, view, onViewChange }: HeaderProps): React.JSX.Element {
+  const activeWorkspace = catalog?.workspaces.find(({ id }) => id === catalog.activeWorkspaceId);
+  const activeSession = activeWorkspace?.sessions.find(({ id }) => id === catalog?.activeSessionId);
   return (
-    <header className="topbar">
-      <div className="brand">
-        <div className="brand-mark" aria-hidden="true">M</div>
-        <strong>Mesh</strong>
-      </div>
-      <nav className="breadcrumb" aria-label="工作区视图">
-        <span>本地工作区</span>
-        <i>/</i>
+    <>
+      <header className="topbar">
+        <div className="session-heading">
+          <h1 title={activeSession?.title}>{activeSession === undefined ? "正在载入会话" : displaySessionTitle(activeSession)}</h1>
+          <div className="session-context">
+            <span>{activeWorkspace?.name ?? "本地工作区"}</span>
+            <i />
+            <span>共享 Room</span>
+            <i />
+            <span>{snapshot.agents.length} 个 Agent</span>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <span className="local-pill"><i /> 本地</span>
+          <button
+            type="button"
+            className="primary compact"
+            disabled={busy !== undefined}
+            onClick={() => void invoke("start-all", () => window.mesh.startAvailableAgents())}
+          >
+            {busy === "start-all" ? "正在启动…" : "启动可用 Agent"}
+          </button>
+        </div>
+      </header>
+      <nav className="breadcrumb view-tabs" aria-label="会话视图">
         <button
           type="button"
           className={view === "room" ? "active" : ""}
           onClick={() => onViewChange("room")}
-        >协作房间</button>
+        >对话</button>
         <button
           type="button"
           className={view === "trajectory" ? "active" : ""}
           onClick={() => onViewChange("trajectory")}
-        >运行轨迹 <span>{snapshot.trace.length}</span></button>
+        >轨迹 <span>{snapshot.trace.length}</span></button>
         <button
           type="button"
           className={view === "configuration" ? "active" : ""}
           onClick={() => onViewChange("configuration")}
         >配置</button>
       </nav>
-      <div className="topbar-actions">
-        <span className="room-id" title={snapshot.roomId}>{snapshot.roomId}</span>
-        <span className="local-pill"><i /> 本地</span>
+    </>
+  );
+}
+
+interface WorkspaceSidebarProps {
+  readonly catalog: WorkspaceCatalogView | undefined;
+  readonly busy: string | undefined;
+  readonly collapsed: boolean;
+  readonly onToggleCollapsed: () => void;
+  readonly onOpenWorkspace: () => void;
+  readonly onCreateSession: (workspaceId: string) => void;
+  readonly onSelectSession: (workspaceId: string, sessionId: string) => void;
+  readonly onArchiveSession: (workspaceId: string, sessionId: string) => void;
+}
+
+interface SessionActionMenuState {
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly title: string;
+  readonly left: number;
+  readonly top: number;
+}
+
+function WorkspaceSidebar({
+  catalog,
+  busy,
+  collapsed,
+  onToggleCollapsed,
+  onOpenWorkspace,
+  onCreateSession,
+  onSelectSession,
+  onArchiveSession,
+}: WorkspaceSidebarProps): React.JSX.Element {
+  const activeWorkspace = catalog?.workspaces.find(({ id }) => id === catalog.activeWorkspaceId);
+  const createKey = activeWorkspace === undefined ? undefined : `create-session:${activeWorkspace.id}`;
+  const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<readonly string[]>([]);
+  const [expandedSessionWorkspaceIds, setExpandedSessionWorkspaceIds] = useState<readonly string[]>([]);
+  const [sessionActionMenu, setSessionActionMenu] = useState<SessionActionMenuState | undefined>();
+  const catalogMutationBusy = busy === "open-workspace"
+    || busy?.startsWith("create-session:") === true
+    || busy?.startsWith("archive-session:") === true;
+
+  useEffect(() => {
+    if (activeWorkspace === undefined || catalog === undefined) return;
+    const activeIndex = activeWorkspace.sessions.findIndex(({ id }) => id === catalog.activeSessionId);
+    if (activeIndex < sidebarSessionLimit) return;
+    setExpandedSessionWorkspaceIds((ids) => ids.includes(activeWorkspace.id) ? ids : [...ids, activeWorkspace.id]);
+  }, [activeWorkspace, catalog]);
+
+  useEffect(() => {
+    if (sessionActionMenu === undefined || catalog === undefined) return;
+    const stillVisible = catalog.workspaces.some((workspace) => workspace.id === sessionActionMenu.workspaceId
+      && workspace.sessions.some((session) => session.id === sessionActionMenu.sessionId));
+    if (!stillVisible) setSessionActionMenu(undefined);
+  }, [catalog, sessionActionMenu]);
+
+  return (
+    <aside className={`workspace-sidebar ${collapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-brand">
         <button
           type="button"
-          className="primary compact"
-          disabled={busy !== undefined}
-          onClick={() => void invoke("start-all", () => window.mesh.startAvailableAgents())}
+          className="left-sidebar-toggle"
+          title={collapsed ? "展开左侧栏" : "收起左侧栏"}
+          aria-label={collapsed ? "展开左侧栏" : "收起左侧栏"}
+          onClick={onToggleCollapsed}
         >
-          {busy === "start-all" ? "正在启动…" : "启动可用 Agent"}
+          <PanelLeftIcon />
         </button>
       </div>
-    </header>
+      <div className="sidebar-actions">
+        <button
+          type="button"
+          className="create-session-primary"
+          disabled={catalogMutationBusy || activeWorkspace === undefined || activeWorkspace.status === "missing"}
+          onClick={() => activeWorkspace === undefined ? undefined : onCreateSession(activeWorkspace.id)}
+        >
+          <NewChatIcon />
+          <span>{busy === createKey ? "正在创建…" : "新会话"}</span>
+        </button>
+      </div>
+      {collapsed ? (
+        <div className="sidebar-rail-actions">
+          <button
+            type="button"
+            className="open-workspace"
+            title="打开项目"
+            aria-label="打开项目"
+            disabled={catalogMutationBusy}
+            onClick={onOpenWorkspace}
+          ><FolderAddIcon /></button>
+        </div>
+      ) : <div className="sidebar-scroll">
+        <section className="workspace-catalog" aria-label="工作区和会话">
+          <div className="section-heading catalog-heading">
+            <h2>工作区</h2>
+            <div className="catalog-actions">
+              <span className="count-badge">{catalog?.workspaces.length ?? 0}</span>
+              <button
+                type="button"
+                className="open-workspace"
+                title="打开项目"
+                aria-label="打开项目"
+                disabled={catalogMutationBusy}
+                onClick={onOpenWorkspace}
+              ><FolderAddIcon /></button>
+            </div>
+          </div>
+          {catalog === undefined ? (
+            <div className="catalog-empty"><strong>正在读取本地目录…</strong><p>Room 数据仍保存在本机。</p></div>
+          ) : catalog.workspaces.length === 0 ? (
+            <div className="catalog-empty"><strong>还没有工作区</strong><p>选择一个项目目录以创建首个 Session。</p></div>
+          ) : (
+            <div className="workspace-groups">
+              {catalog.workspaces.map((workspace) => {
+                const activeWorkspace = workspace.id === catalog.activeWorkspaceId;
+                const workspaceCreateKey = `create-session:${workspace.id}`;
+                const workspaceCollapsed = collapsedWorkspaceIds.includes(workspace.id);
+                const sessionsExpanded = expandedSessionWorkspaceIds.includes(workspace.id);
+                const visibleSessions = sessionsExpanded
+                  ? workspace.sessions
+                  : workspace.sessions.slice(0, sidebarSessionLimit);
+                return (
+                  <section
+                    className={`workspace-group ${activeWorkspace ? "active" : ""} ${workspace.status} ${workspaceCollapsed ? "group-collapsed" : ""}`}
+                    data-workspace-id={workspace.id}
+                    key={workspace.id}
+                  >
+                    <div className="workspace-group-heading">
+                      <button
+                        type="button"
+                        className="workspace-toggle"
+                        aria-expanded={!workspaceCollapsed}
+                        title={workspace.root}
+                        onClick={() => {
+                          setSessionActionMenu(undefined);
+                          setCollapsedWorkspaceIds((ids) => ids.includes(workspace.id)
+                            ? ids.filter((id) => id !== workspace.id)
+                            : [...ids, workspace.id]);
+                        }}
+                      >
+                        <span className="workspace-leading" aria-hidden="true">
+                          <FolderIcon />
+                          <ChevronRightIcon className={workspaceCollapsed ? "" : "open"} />
+                        </span>
+                        <span className="workspace-identity"><strong>{workspace.name}</strong></span>
+                      </button>
+                      <button
+                        type="button"
+                        className="new-session"
+                        title={workspace.status === "missing" ? "项目目录不可用" : "新建 Session"}
+                        aria-label={`在 ${workspace.name} 中新建 Session`}
+                        disabled={catalogMutationBusy || workspace.status === "missing"}
+                        onClick={() => onCreateSession(workspace.id)}
+                      >{busy === workspaceCreateKey ? "…" : <PlusIcon />}</button>
+                    </div>
+                    {!workspaceCollapsed && workspace.status === "missing" ? (
+                      <div className="workspace-warning"><i /> 项目目录缺失，历史仍保留在 MESH_HOME</div>
+                    ) : null}
+                    {workspaceCollapsed ? null : <div className="session-list">
+                      {workspace.sessions.length === 0 ? (
+                        <div className="session-empty">暂无 Session</div>
+                      ) : visibleSessions.map((session) => {
+                        const active = activeWorkspace && session.id === catalog.activeSessionId;
+                        const selectable = workspace.status === "available" && session.status === "ok";
+                        const title = displaySessionTitle(session);
+                        const removable = !active && session.status === "ok" && session.messageCount === 0;
+                        const menuOpen = sessionActionMenu?.sessionId === session.id;
+                        return (
+                          <div
+                            className={`session-row ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""} ${session.status}`}
+                            key={session.id}
+                          >
+                            <button
+                              type="button"
+                              className={`session-item ${active ? "active" : ""} ${session.status}`}
+                              data-session-id={session.id}
+                              disabled={busy !== undefined || !selectable || active}
+                              title={session.detail ?? title}
+                              onClick={() => onSelectSession(workspace.id, session.id)}
+                            >
+                              <span className={`session-state ${session.status}`} aria-hidden="true" />
+                              <span className="session-copy">
+                                <span className="session-title-row">
+                                  <strong>{title}</strong>
+                                  <time>{formatSessionTime(session.updatedAt)}</time>
+                                  {session.status === "ok" ? null : (
+                                    <em>{session.status === "corrupt" ? "损坏" : "缺失"}</em>
+                                  )}
+                                </span>
+                              </span>
+                            </button>
+                            {removable ? (
+                              <button
+                                type="button"
+                                className="session-actions-trigger"
+                                title="会话操作"
+                                aria-label={`会话“${title}”的操作`}
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpen}
+                                disabled={busy !== undefined}
+                                onClick={(event) => {
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  const menuWidth = 164;
+                                  const menuHeight = 42;
+                                  setSessionActionMenu((current) => current?.sessionId === session.id
+                                    ? undefined
+                                    : {
+                                        workspaceId: workspace.id,
+                                        sessionId: session.id,
+                                        title,
+                                        left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+                                        top: rect.bottom + 4 + menuHeight > window.innerHeight
+                                          ? rect.top - menuHeight - 4
+                                          : rect.bottom + 4,
+                                      });
+                                }}
+                              >
+                                <EllipsisIcon />
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                      {workspace.sessions.length > sidebarSessionLimit ? (
+                        <button
+                          type="button"
+                          className="session-overflow"
+                          aria-expanded={sessionsExpanded}
+                          onClick={() => setExpandedSessionWorkspaceIds((ids) => ids.includes(workspace.id)
+                            ? ids.filter((id) => id !== workspace.id)
+                            : [...ids, workspace.id])}
+                        >
+                          {sessionsExpanded ? "收起" : "展示更多"}
+                        </button>
+                      ) : null}
+                    </div>}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+      }
+      {collapsed ? null : <div className="sidebar-footer">
+        <i aria-hidden="true" />
+        <strong>本地 Room</strong>
+        <span>共享上下文</span>
+      </div>}
+      {sessionActionMenu === undefined ? null : createPortal(
+        <SessionActionMenu
+          menu={sessionActionMenu}
+          busy={busy === `archive-session:${sessionActionMenu.sessionId}`}
+          onClose={() => setSessionActionMenu(undefined)}
+          onArchive={() => {
+            const { workspaceId, sessionId } = sessionActionMenu;
+            setSessionActionMenu(undefined);
+            onArchiveSession(workspaceId, sessionId);
+          }}
+        />,
+        document.body,
+      )}
+    </aside>
+  );
+}
+
+function SessionActionMenu({
+  menu,
+  busy,
+  onClose,
+  onArchive,
+}: {
+  readonly menu: SessionActionMenuState;
+  readonly busy: boolean;
+  readonly onClose: () => void;
+  readonly onArchive: () => void;
+}): React.JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const closeFromPointer = (event: PointerEvent): void => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      if (event.target instanceof Element && event.target.closest(".session-actions-trigger") !== null) return;
+      onClose();
+    };
+    const closeFromKeyboard = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onClose();
+    };
+    const closeFromScroll = (): void => onClose();
+    document.addEventListener("pointerdown", closeFromPointer);
+    document.addEventListener("keydown", closeFromKeyboard);
+    window.addEventListener("scroll", closeFromScroll, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromPointer);
+      document.removeEventListener("keydown", closeFromKeyboard);
+      window.removeEventListener("scroll", closeFromScroll, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="session-action-menu"
+      role="menu"
+      aria-label={`会话“${menu.title}”的操作`}
+      style={{ left: menu.left, top: menu.top }}
+    >
+      <button type="button" role="menuitem" disabled={busy} onClick={onArchive}>
+        <ArchiveIcon />
+        <span>{busy ? "正在归档…" : "归档会话"}</span>
+      </button>
+    </div>
   );
 }
 
@@ -572,22 +1047,17 @@ interface AgentRailProps extends RuntimeProps {
 function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JSX.Element {
   const availability = useMemo(() => new Map(probes.map((probe) => [probe.id, probe])), [probes]);
   return (
-    <aside className="agent-rail">
-      <div className="section-heading">
-        <h2>成员</h2>
-        <span className="count-badge">{snapshot.agents.length + 1}</span>
-      </div>
+    <section className="agent-rail">
       <div className="agent-list">
-        <article className="agent-card human-card">
+        <article className="agent-card human-member" title="当前本地用户">
           <div className="agent-card-top">
             <div className="avatar human-avatar">你</div>
             <div className="agent-identity">
               <strong>你</strong>
-              <span>@human</span>
+              <span>在线 · @human</span>
             </div>
             <i className="status-dot idle" title="在线" />
           </div>
-          <div className="human-presence">当前用户 · 在线</div>
         </article>
         {snapshot.agents.map((agent) => {
           const probe = availability.get(agent.id);
@@ -595,24 +1065,21 @@ function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JS
           const action = running ? "stop" : "start";
           const key = `${action}:${agent.id}`;
           return (
-            <article className="agent-card" key={agent.id}>
+            <article
+              className="agent-card"
+              title={`${agent.adapterKind} · ${probe?.available === false ? "未检测到" : probe?.version ?? "检测中"}`}
+              key={agent.id}
+            >
               <div className="agent-card-top">
                 <div className={`avatar avatar-${agent.handle.slice(0, 1)}`}>{agent.name.slice(0, 1)}</div>
                 <div className="agent-identity">
                   <strong>{agent.name}</strong>
-                  <span>@{agent.handle}</span>
+                  <span>{presenceLabel(agent.state)} · @{agent.handle}</span>
                 </div>
                 <i className={`status-dot ${agent.state}`} title={presenceLabel(agent.state)} />
-              </div>
-              <div className="agent-facts">
-                <span>{agent.adapterKind}</span>
-                <span>{probe?.available === false ? "未检测到" : probe?.version ?? "检测中"}</span>
-              </div>
-              <div className="agent-card-bottom">
-                <span className={`status-label ${agent.state}`}>{presenceLabel(agent.state)}</span>
                 <button
                   type="button"
-                  className="ghost compact"
+                  className="agent-action"
                   disabled={busy !== undefined || probe?.available === false}
                   onClick={() => void invoke(key, () => window.mesh.agentAction({ agentId: agent.id, action }))}
                 >
@@ -623,14 +1090,109 @@ function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JS
           );
         })}
       </div>
-      <div className="rail-note">
-        <i aria-hidden="true" />
-        <div>
-          <strong>共享上下文</strong>
-          <p>房间消息对所有成员可见，@提及只决定谁需要响应。</p>
-        </div>
-      </div>
-    </aside>
+    </section>
+  );
+}
+
+interface IconProps {
+  readonly className?: string;
+}
+
+function PanelLeftIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="2.75" y="3.25" width="14.5" height="13.5" rx="2.25" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M7.25 3.75v12.5" stroke="currentColor" strokeWidth="1.35" />
+    </svg>
+  );
+}
+
+function PanelRightIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="2.75" y="3.25" width="14.5" height="13.5" rx="2.25" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M12.75 3.75v12.5" stroke="currentColor" strokeWidth="1.35" />
+    </svg>
+  );
+}
+
+function NewChatIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10.25 4H5.5A2.5 2.5 0 0 0 3 6.5v7A2.5 2.5 0 0 0 5.5 16h7a2.5 2.5 0 0 0 2.5-2.5V9" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+      <path d="m9.25 10.75.35-2.1L14.55 3.7a1.25 1.25 0 0 1 1.75 0 1.25 1.25 0 0 1 0 1.75L11.35 10.4l-2.1.35Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FolderIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M2.75 6.25A2.25 2.25 0 0 1 5 4h3l1.7 1.75H15A2.25 2.25 0 0 1 17.25 8v5A2.25 2.25 0 0 1 15 15.25H5A2.25 2.25 0 0 1 2.75 13V6.25Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FolderAddIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M2.5 6.5A2.5 2.5 0 0 1 5 4h2.75L9.5 5.75h5A2.5 2.5 0 0 1 17 8.25V13a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 13V6.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M10 9v4M8 11h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="m7.5 5 5 5-5 5" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10 4.5v11M4.5 10h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function EllipsisIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="5" cy="10" r="1.15" fill="currentColor" />
+      <circle cx="10" cy="10" r="1.15" fill="currentColor" />
+      <circle cx="15" cy="10" r="1.15" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ArchiveIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M4 7.25h12v7.25a1.75 1.75 0 0 1-1.75 1.75h-8.5A1.75 1.75 0 0 1 4 14.5V7.25Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      <path d="M3.25 4.25h13.5v3H3.25v-3ZM8 10h4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function UsersIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="7.25" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M2.75 15c.3-2.55 1.8-4 4.5-4s4.2 1.45 4.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M12.5 5.25a2.5 2.5 0 0 1 0 4.8M13 11.2c2.4.2 3.75 1.5 4 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TaskIcon({ className }: IconProps): React.JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="14" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="m6 7 1 1 1.75-2M10.5 7h3.5M6 12h1M10.5 12h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -861,6 +1423,20 @@ function formatClock(timestamp: number): string {
   }).format(timestamp);
 }
 
+function formatSessionTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "时间未知";
+  const elapsed = Math.max(0, Date.now() - timestamp);
+  if (elapsed < 60_000) return "刚刚";
+  if (elapsed < 3_600_000) return `${String(Math.floor(elapsed / 60_000))} 分钟前`;
+  if (elapsed < 86_400_000) return `${String(Math.floor(elapsed / 3_600_000))} 小时前`;
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(timestamp);
+}
+
+function displaySessionTitle(session: { readonly title: string; readonly messageCount: number }): string {
+  return session.messageCount === 0 ? "新会话" : session.title;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -872,6 +1448,20 @@ function configurationErrorMessage(error: unknown): string {
   }
   if (message.includes("already being saved")) {
     return "另一个进程正在保存配置，请稍后重试。";
+  }
+  return message;
+}
+
+function workspaceErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  if (message.includes("Project directory is missing or unavailable")) {
+    return `项目目录缺失或当前不可访问。${message.split(":").slice(1).join(":")}`;
+  }
+  if (message.includes("previous session remains active")) {
+    return "无法打开所选 Session，原 Session 仍保持活动。请检查配置、Session 头文件和项目目录。";
+  }
+  if (message.includes("Cannot open")) {
+    return `无法打开所选 Session：${message}`;
   }
   return message;
 }
