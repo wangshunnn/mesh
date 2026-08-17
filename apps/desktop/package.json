@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -b && pnpm build:preload && pnpm build:renderer",
     "build:preload": "vite build --config vite.preload.config.ts",
-    "build:renderer": "vite build src/renderer --base ./ --outDir ../../dist/renderer --emptyOutDir",
+    "build:renderer": "vite build --config vite.renderer.config.ts",
     "check": "tsc -b --pretty false",
     "dev": "pnpm build && electron .",
     "smoke": "pnpm build && electron dist/electron/main/smoke.js",
@@ -18,13 +18,18 @@
     "@ai-mesh/application": "workspace:*",
     "@ai-mesh/protocol": "workspace:*",
     "@ai-mesh/workspace": "workspace:*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
+    "radix-ui": "^1.6.7",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "electron": "^37.2.6",
+    "tailwindcss": "^4.3.3",
     "vite": "^7.1.3"
   }
 }
