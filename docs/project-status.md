@@ -4,7 +4,11 @@ Last updated: **2026-08-17**
 
 Implementation branch: **`main`**
 
-Verified implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
+Verified committed implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
+
+Latest verified increment: **GUI workspace/session navigation and Codex/DSH-style
+desktop shell refinement in the working tree based on `911c4fe`** (implementation
+commit pending)
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -19,10 +23,10 @@ generation.
 
 The repository is currently a **verified technical MVP**, not yet a distributable
 product MVP. The kernel, local persistence, real-adapter vertical slice, Chinese
-Electron GUI, developer trace, bounded candidate reconciliation, and safe local
-config-v1 editing exist. Clean-machine workspace selection, provider/model
-configuration, packaged releases, a stable public SDK, and remote multi-machine
-Rooms do not yet exist.
+Electron GUI, developer trace, bounded candidate reconciliation, safe local
+config-v1 editing, and GUI workspace/session navigation exist. Provider/model
+configuration, complete clean-machine Agent onboarding, packaged releases, a
+stable public SDK, and remote multi-machine Rooms do not yet exist.
 
 Phase 3A now has an approved configuration model without changing configuration
 version 1. The headless API can parse and canonically serialize all current
@@ -47,6 +51,27 @@ does not modify it or require `.gitignore`. Both the former project-local
 `.mesh/` and the former centralized `workspaces/<workspace-id>/` layouts migrate
 on first mutating open; ambiguous multiple histories are rejected.
 
+Desktop now consumes browser-safe workspace/session catalog projections over
+typed IPC. A native directory picker can register or open another project, the
+project-grouped sidebar can create and explicitly select isolated sessions, and
+the replaceable host serializes every switch through close-and-open recovery.
+Cold summaries expose title, preview, recency, message count, active state, and
+missing/corrupt state without giving the renderer direct storage access.
+
+The desktop shell now follows a flatter Codex/DSH-inspired hierarchy. Its left
+project navigation uses Codex's 275 px preferred width and collapses completely,
+leaving its toggle in the macOS title-bar safe area; the right member/task panel
+collapses to 48 px, and the provisional Mesh wordmark is omitted.
+Project rows use folder icons that swap to disclosure chevrons on hover, default
+to five visible sessions with an explicit overflow action, and keep at most one
+reusable blank session. Desktop startup archives redundant historical blanks per
+workspace while preserving the current or newest blank. Inactive empty sessions
+also expose DSH's hover ellipsis and a recoverable “归档会话” menu action; neither
+path physically deletes Room data. Conversation members live in the right panel.
+The renderer now uses the Codex system-font stack, 14/12/11 px type hierarchy,
+and neutral gray palette. Room identity, shared-history semantics, Agent actions,
+and diagnostic boundaries are unchanged by this visual refinement.
+
 The monorepo boundary is now hardened without changing product semantics. A new
 browser-safe `@ai-mesh/application` package owns client projections and the
 transport-neutral `MeshClient` contract; Desktop renderer/shared code no longer
@@ -63,13 +88,13 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
-| Desktop product | Chinese local-room GUI with trajectory and editable per-session config-v1/Agent settings; workspace/session chooser not yet implemented |
+| Desktop product | Chinese local-room GUI with project-grouped workspace/session navigation, trajectory, and editable per-session config-v1/Agent settings |
 | CLI | Headless Room workflows, session list/new/select, and revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Machine-local workspace catalog plus isolated per-session config and SQLite under `MESH_HOME` |
 | Public distribution | Not published; packages are `private`, version `0.0.0` |
 | Remote collaboration | Not implemented |
-| Current phase | Phase 3A local product configuration and onboarding (GUI workspace/session navigation next) |
+| Current phase | Phase 3A local product configuration and onboarding (Agent diagnostics and provider/model contract next) |
 | Phase 2B cancellation | Gated on trace evidence; not the default next step |
 
 ## Implemented behavior
@@ -271,21 +296,49 @@ no project-local or obsolete centralized state, and configuration layouts at
 1440×900 and 1040×680. Both captured views were visually checked with no clipping,
 horizontal overflow, renderer diagnostics, or unusable controls.
 
+The GUI workspace/session navigation increment passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-17. Sixteen workspace tests include
+cold summaries after a project root disappears. Nineteen Desktop package tests
+include serialized new/select operations, cross-project switching, stable
+session ordering, isolated canonical histories, recovery to the previous live
+session, and corrupt-header rejection. Electron smoke edited config, created and
+switched two sessions without merging history, opened a second project through
+the injected native-picker boundary, returned to the original session, and
+reported no renderer warnings or errors. Workspace and configuration screenshots
+at 1440×900 and 1040×680 were visually checked with no horizontal overflow,
+clipping, or unusable controls.
+
+The subsequent Codex/DSH-style shell refinement also passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-17. Seventeen workspace tests and twenty-one
+Desktop package tests now include recoverable session archival, startup cleanup
+of redundant historical blanks, and host-side rejection of active or non-empty
+deletion. Electron smoke clicks the real New
+Session control repeatedly to verify blank-session reuse, creates six sessions to
+verify the five-row overflow state, opens the DSH-style session menu, archives an
+inactive empty session, toggles a project, and checks the zero-width left layout,
+real pointer hit target for the fixed title-bar action, single active highlight,
+48 px right rail, system font stack, neutral sidebar color, and 14 px body type.
+Fresh workspace and configuration captures at 1440×900 and 1040×680 verified the
+compact member/task panel and usable chat/config layouts without renderer
+diagnostics, clipping, or horizontal overflow. Workspace switching no longer
+projects its transient disabled state into unrelated renderer controls.
+
 ## Known limitations
 
 These are current boundaries, not regressions:
 
 1. **One Room per session.** A session config names one Room, and the product
-   UI/runtime surface one default `thread:general`. Multiple sessions are
-   available through headless APIs and CLI, but Desktop has no session/workspace
-   chooser yet. Multi-Room and multi-thread navigation are not implemented.
+   UI/runtime surface one default `thread:general`. Desktop, CLI, and headless
+   APIs can select isolated sessions, but multi-Room and multi-thread navigation
+   are not implemented.
 2. **Machine-local state.** SQLite, workspace config, and resumable session
    metadata live below `MESH_HOME`; they do not sync through Git. Moving a
    project directory still requires an explicit future rebind flow because the
-   registry intentionally does not place an identity marker in the project.
-3. **Incomplete onboarding configuration.** Desktop can edit existing config-v1
-   Room and Agent fields, but it cannot choose/create another workspace, add or
-   remove Agent entries, or select provider/model options. Authentication and
+   registry intentionally does not place an identity marker in the project. The
+   Desktop sidebar reports a missing root but cannot rebind it yet.
+3. **Incomplete onboarding configuration.** Desktop can choose projects, create
+   sessions, and edit existing config-v1 Room and Agent fields, but it cannot add
+   or remove Agent entries or select provider/model options. Authentication and
    proxy failures still lack dedicated product guidance.
 4. **Two production adapter kinds.** Workspace validation and its immutable
    code-level provider registry currently accept only `opencode-acp` and
@@ -304,28 +357,26 @@ These are current boundaries, not regressions:
 
 ## Next recommended development
 
-The next Phase 3A increment is GUI workspace and session navigation, building on
-the verified `739fa32` storage contract. Keep the Desktop renderer as a client of
-browser-safe application projections; it must not read `MESH_HOME` directly.
+The next Phase 3A increment should make Agent onboarding failures diagnosable
+without widening config-v1 or storing credentials. Keep provider/model schema
+work behind an explicit adapter-contract and migration decision.
 
 Implement the increment in this order:
 
-1. add browser-safe workspace and session summary projections plus typed client
-   operations for catalog listing, session creation, and explicit selection;
-2. expose those operations through Electron main/preload IPC while preserving
-   the current host's serialized close-and-reopen boundary;
-3. replace the fixed single-workspace shell with a restrained DSH/Codex-inspired
-   sidebar: project groups, ordered session titles/previews, active state, and a
-   clear new-session action;
-4. add a native project-directory chooser and explicit states for missing roots,
-   corrupt/missing session headers, empty catalogs, loading, and selection errors;
-5. verify that switching never merges Room histories, opening an existing
-   session does not reorder it, and creating a session prepends only the new ID;
-6. extend Electron smoke and visual QA for workspace/session creation and
-   switching at 1440×900 and 1040×680.
+1. replace free-form probe/start failures with browser-safe typed issue kinds for
+   command-not-found, authentication, proxy/network, permission, and process exit;
+2. preserve adapter-native detail for diagnostics while projecting concise Chinese
+   recovery guidance in Desktop;
+3. add an onboarding status surface that distinguishes unavailable, needs setup,
+   ready, starting, and failed Agents without starting them implicitly;
+4. cover clean-machine missing-command and unauthenticated paths in deterministic
+   tests and Electron smoke without requiring real credentials;
+5. separately inventory how each built-in adapter discovers provider/model
+   choices, then approve the common contract and config migration before changing
+   the schema or adding a model picker.
 
-Provider/model configuration, Agent-list mutation, multi-Room/thread semantics,
-and Phase 2B cancellation remain outside this increment.
+Agent-list mutation, multi-Room/thread semantics, remote sync, and Phase 2B
+cancellation remain outside this increment.
 
 ## Resume on another computer
 
@@ -373,9 +424,10 @@ From the repository root:
 pnpm desktop
 ```
 
-Electron uses the current process directory as its workspace root. Set
-`MESH_WORKSPACE_ROOT=/absolute/project/path` only when launching the desktop app
-from another directory or intentionally opening a different workspace.
+Electron uses the current process directory as its initial workspace root. Use
+the Desktop “打开项目” action to choose another directory. Set
+`MESH_WORKSPACE_ROOT=/absolute/project/path` only for scripted startup or when
+launching the desktop app from another directory.
 
 For a CLI acceptance flow:
 

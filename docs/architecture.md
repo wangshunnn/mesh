@@ -172,6 +172,26 @@ after composition succeeds. A stale save leaves the live workspace untouched;
 an explicit reload validates the disk document before closing the known-good
 composition.
 
+The same host owns project and session selection. The renderer consumes only a
+browser-safe cold catalog projection and typed open/new/select operations; a
+native directory picker crosses IPC as a selected path rather than filesystem
+access in the renderer. Every switch closes the active immutable composition,
+opens the selected session, moves subscriptions, and restores the previous
+session if the target cannot open. Selecting an existing session never reorders
+the registry. The Desktop New Session intent reuses the workspace's one existing
+unarchived blank session; only when none exists does it prepend a newly created
+session ID. The active session is classified from its live Room snapshot rather
+than a possibly stale cold projection.
+
+Desktop deletion is deliberately a recoverable catalog operation, not destructive
+Room deletion. Only an inactive session with a valid header and zero projected
+messages may be archived. Its registry ownership, session directory, canonical
+ledger, configuration, and SQLite database remain intact below `MESH_HOME`; the
+browser-safe catalog filters archived sessions from normal navigation. On host
+startup, every workspace is normalized to at most one unarchived blank session:
+the current blank wins when present, otherwise the newest cold blank wins, and
+older redundant blanks are archived through the same non-destructive operation.
+
 The workspace adapter registry is an immutable code-level injection seam. It
 removes provider construction from general workspace lifecycle code and permits
 deterministic substitution in tests, but deliberately does not load external

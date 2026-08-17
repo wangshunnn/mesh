@@ -2,9 +2,11 @@
 
 Last updated: **2026-08-17**
 
-Starting Git baseline for the next increment: **`739fa32`**
+Latest verified increment: **GUI workspace/session navigation and Codex/DSH-style
+desktop shell refinement in the working tree based on `911c4fe`** (implementation
+commit pending)
 
-Current position: **Phase 2A verified; Phase 3A session-first persistence is verified and GUI workspace/session navigation is next**
+Current position: **Phase 2A verified; Phase 3A GUI workspace/session navigation is verified and Agent onboarding diagnostics are next**
 
 Read [`project-status.md`](project-status.md) for the complete handoff snapshot
 and known limitations. This roadmap records sequencing and gates, not only a
@@ -30,7 +32,7 @@ feature wishlist.
 | Phase 1 — Real collaboration vertical slice | Verified | `31ef73c`, `72c4061` | SQLite, real adapters, CLI, Chinese Electron GUI |
 | Phase 2A — Candidate reconciliation | Verified | `08f15de` | Bounded keep/patch/regenerate/drop against live Room state |
 | Phase 2B — Explicit hard invalidation | Gated | — | Cancel only provably superseded work |
-| Phase 3 — Local product MVP | In progress (3A enabling) | `739fa32` | Session-first persistence verified; GUI navigation and onboarding next |
+| Phase 3 — Local product MVP | In progress (3A enabling) | working tree after `911c4fe` | GUI navigation and shell refinement verified; Agent diagnostics and provider/model semantics remain |
 | Phase 4 — Community SDK | Proposed | — | Stable public `@ai-mesh` packages and external adapters |
 | Phase 5 — Remote Rooms | Proposed | — | Secure multi-machine collaboration |
 
@@ -175,7 +177,7 @@ safe-write contract; workspace selection and provider/model semantics remain.
 
 Proposed scope:
 
-- [ ] Open or create a workspace from the GUI
+- [x] Open or create a workspace from the GUI
 - [x] Centralize machine-local workspace registration, config, and SQLite below
   `MESH_HOME` without writing metadata into user projects
 - [x] Separate project identity from Room sessions with a DSH-inspired
@@ -221,26 +223,63 @@ Exit gate: on a clean machine, a user can create a workspace, configure at least
 one available Agent, start it, and complete a Room conversation without manually
 editing JSON.
 
-Status: **in progress; session-first workspace ownership plus headless and CLI
-session operations and desktop config-v1 writes are implemented, while GUI
-workspace/session selection, provider/model options, and onboarding diagnostics
-remain**.
+Status: **in progress; session-first workspace ownership, headless/CLI/Desktop
+session operations, GUI project selection, and desktop config-v1 writes are
+implemented, while provider/model options and onboarding diagnostics remain**.
 
 #### Next increment — GUI workspace and session navigation
 
-Status: **planned from verified baseline `739fa32`**.
+Status: **verified in the working tree based on `911c4fe` on 2026-08-17**.
 
-- [ ] Define browser-safe workspace/session summaries and client operations
-- [ ] Add typed IPC for catalog list, new session, and explicit session switch
-- [ ] Add native project-directory selection without writing into the project
-- [ ] Build a DSH/Codex-inspired project-grouped session sidebar
-- [ ] Show derived title, preview, recency, active state, and corrupt/missing state
-- [ ] Preserve serialized host replacement when switching the active session
-- [ ] Test that session switching never merges or reorders canonical histories
-- [ ] Extend Electron smoke and 1440×900 / 1040×680 visual QA for the new shell
+- [x] Define browser-safe workspace/session summaries and client operations
+- [x] Add typed IPC for catalog list, new session, and explicit session switch
+- [x] Add native project-directory selection without writing into the project
+- [x] Build a DSH/Codex-inspired project-grouped session sidebar
+- [x] Show derived title, preview, recency, active state, and corrupt/missing state
+- [x] Flatten the desktop hierarchy around one primary new-session action,
+  lightweight project/session rows, and compact Agent presence
+- [x] Add a Codex-style 275→0 px left collapse with a native-title-bar action
+  and 320→48 px right collapse, with conversation members in the right panel
+- [x] Use folder/disclosure project rows and cap the collapsed session list at
+  five rows behind an explicit “展示更多” action
+- [x] Reuse the workspace's one blank session instead of creating duplicates
+  from repeated New Session intents
+- [x] Archive redundant historical blanks on Desktop startup, preserving the
+  current or newest blank and every underlying Room database
+- [x] Allow only inactive empty sessions to leave the catalog through recoverable
+  archival while preserving their local Room data
+- [x] Match DSH's session-row affordance with a hover ellipsis and non-destructive
+  “归档会话” menu instead of a direct trash icon
+- [x] Use session-level conversation/trajectory/config tabs with an understated
+  underline active state and compact conversation navigation
+- [x] Align the renderer with Codex's system font stack, 14/12/11 px type scale,
+  neutral gray palette, and macOS title-bar safe inset
+- [x] Keep workspace-switch busy state from visually disabling unrelated controls
+- [x] Keep inactive project mouse focus visually distinct from the sole active
+  session, and verify the collapsed title-bar toggle is a real pointer hit target
+- [x] Preserve serialized host replacement when switching the active session
+- [x] Test that session switching never merges or reorders canonical histories,
+  and that active blank detection uses live Room state
+- [x] Extend Electron smoke and 1440×900 / 1040×680 visual QA for the new shell
 
 This increment does not introduce provider/model schema changes, Agent-list
 mutation, multi-Room/thread navigation, or a central speaker scheduler.
+
+#### Next increment — Agent onboarding diagnostics
+
+Status: **planned; keep config-v1 unchanged**.
+
+- [ ] Define typed probe/start issue kinds for missing commands, authentication,
+  proxy/network, permissions, and process exits
+- [ ] Project actionable Chinese recovery guidance without storing credentials
+- [ ] Distinguish unavailable, needs-setup, ready, starting, and failed states
+- [ ] Add deterministic clean-machine onboarding tests and Electron smoke
+- [ ] Measure and document provider/model discovery for both built-in adapters
+- [ ] Approve the adapter capability contract and config migration before adding
+  provider/model fields or a model picker
+
+This increment does not add credentials, external adapter loading, Agent-list
+mutation, or a new config version without explicit migration fixtures.
 
 ### Phase 3B — Complete local collaboration workflows
 
