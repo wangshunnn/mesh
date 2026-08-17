@@ -32,8 +32,10 @@ export {
   type WorkspaceConfigInput,
 } from "./config.js";
 export {
+  archiveRegisteredWorkspaceSession,
   createWorkspaceSessionId,
   inspectWorkspaceStorage,
+  listRegisteredWorkspaceSessions,
   listWorkspaceRegistrations,
   listWorkspaceSessions,
   prepareWorkspaceStorage,
@@ -51,6 +53,8 @@ export {
   WorkspaceStorageOverlapError,
   WorkspaceSessionCorruptError,
   type WorkspaceRegistration,
+  type RegisteredWorkspaceInput,
+  type RegisteredWorkspaceSessionInput,
   type WorkspaceSessionHeader,
   type WorkspaceSessionProjection,
   type WorkspaceSessionStatus,

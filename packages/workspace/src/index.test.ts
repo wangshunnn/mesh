@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   readdirSync,
+  rmdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -24,7 +25,9 @@ import {
   WorkspaceConfigLockedError,
   WorkspaceMigrationConflictError,
   WorkspaceStorageOverlapError,
+  archiveRegisteredWorkspaceSession,
   defaultWorkspaceConfig,
+  listRegisteredWorkspaceSessions,
   listWorkspaceRegistrations,
   listWorkspaceSessions,
   parseWorkspaceConfig,
@@ -401,6 +404,41 @@ test("one workspace owns ordered isolated sessions with cold sidebar projections
     ["First session title", "First session latest message"],
   );
   await reopenedFirst.close();
+});
+
+test("archiving a registered session hides no Room data", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-archive-session-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  const workspaceId = workspace.workspaceId;
+  const sessionId = workspace.sessionId;
+  const dataDirectory = workspace.dataDirectory;
+  const databasePath = workspace.databasePath;
+  await workspace.close();
+
+  archiveRegisteredWorkspaceSession({ workspaceId, sessionId, meshHome });
+  archiveRegisteredWorkspaceSession({ workspaceId, sessionId, meshHome });
+
+  const archived = listRegisteredWorkspaceSessions({ workspaceId, meshHome });
+  assert.equal(archived[0]?.id, sessionId);
+  assert.equal(archived[0]?.archived, true);
+  assert.equal(existsSync(dataDirectory), true);
+  assert.equal(existsSync(databasePath), true);
+  assert.equal(listWorkspaceRegistrations({ meshHome })[0]?.sessionIds.includes(sessionId), true);
+});
+
+test("registered session summaries remain readable when the project root is missing", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-missing-root-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  workspace.postText("History outside the project", { idempotencyKey: "missing-root-title" });
+  const workspaceId = workspace.workspaceId;
+  const sessionId = workspace.sessionId;
+  await workspace.close();
+  rmdirSync(root);
+
+  const sessions = listRegisteredWorkspaceSessions({ workspaceId, meshHome });
+  assert.deepEqual(sessions.map(({ id, status, title }) => ({ id, status, title })), [
+    { id: sessionId, status: "ok", title: "History outside the project" },
+  ]);
 });
 
 test("session listing tolerates and lazily repairs a corrupt derived projection cache", async () => {

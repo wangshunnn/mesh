@@ -80,6 +80,15 @@ export interface WorkspaceStorageInput {
   readonly sessionId?: string;
 }
 
+export interface RegisteredWorkspaceInput {
+  readonly workspaceId: string;
+  readonly meshHome?: string;
+}
+
+export interface RegisteredWorkspaceSessionInput extends RegisteredWorkspaceInput {
+  readonly sessionId: string;
+}
+
 export interface WorkspaceStorageLocation {
   readonly workspaceId: string;
   readonly sessionId: string;
@@ -215,6 +224,10 @@ export function createWorkspaceSessionId(): string {
 /** Human-readable, collision-resistant grouping key derived from the canonical cwd. */
 export function workspaceProjectKey(root: string): string {
   const canonical = resolveWorkspaceRoot(root);
+  return workspaceProjectKeyFromCanonicalRoot(canonical);
+}
+
+function workspaceProjectKeyFromCanonicalRoot(canonical: string): string {
   let readable = "";
   let separatorRun = false;
   for (let index = 0; index < canonical.length; index += 1) {
@@ -255,9 +268,60 @@ export function listWorkspaceSessions(options: WorkspaceStorageInput): readonly 
       `Workspace ${root} is registered as ${workspace.id}, not ${options.workspaceId}.`,
     );
   }
+  return registeredWorkspaceSessions(workspace, registry, meshHome);
+}
+
+/** List a registered project's sessions even when its project directory is temporarily missing. */
+export function listRegisteredWorkspaceSessions(
+  options: RegisteredWorkspaceInput,
+): readonly WorkspaceSessionSummary[] {
+  assertWorkspaceId(options.workspaceId);
+  const meshHome = resolveMeshHome(options.meshHome);
+  const registry = readRegistry(meshHome);
+  const workspace = registry.workspaces.find((candidate) => candidate.id === options.workspaceId);
+  if (workspace === undefined) return Object.freeze([]);
+  return registeredWorkspaceSessions(workspace, registry, meshHome);
+}
+
+/** Hide one registered session from product catalogs without deleting its Room data. */
+export function archiveRegisteredWorkspaceSession(options: RegisteredWorkspaceSessionInput): void {
+  assertWorkspaceId(options.workspaceId);
+  assertSessionId(options.sessionId);
+  const meshHome = resolveMeshHome(options.meshHome);
+  const registryPath = join(meshHome, "storages", "workspace.json");
+  const lockPath = `${registryPath}.lock`;
+  const lockDescriptor = acquireLock(lockPath, WorkspaceRegistryLockedError);
+  try {
+    const registry = readRegistry(meshHome);
+    const workspace = registry.workspaces.find((candidate) => candidate.id === options.workspaceId);
+    if (workspace === undefined) {
+      throw new WorkspaceRegistrationConflictError(
+        `Workspace ${options.workspaceId} is not registered.`,
+      );
+    }
+    if (!workspace.sessionIds.includes(options.sessionId)) {
+      throw new WorkspaceRegistrationConflictError(
+        `Session ${options.sessionId} does not belong to workspace ${options.workspaceId}.`,
+      );
+    }
+    if (registry.archivedSessionIds.includes(options.sessionId)) return;
+    writeRegistry(meshHome, {
+      ...registry,
+      archivedSessionIds: Object.freeze([...registry.archivedSessionIds, options.sessionId]),
+    });
+  } finally {
+    releaseLock(lockDescriptor, lockPath);
+  }
+}
+
+function registeredWorkspaceSessions(
+  workspace: WorkspaceRegistration,
+  registry: WorkspaceRegistryDocument,
+  meshHome: string,
+): readonly WorkspaceSessionSummary[] {
   const cache = readProjectionCacheFailSoft(meshHome);
   return Object.freeze(workspace.sessionIds.map((sessionId) => {
-    const location = storageLocation(root, meshHome, workspace.id, sessionId, true, true);
+    const location = storageLocation(workspace.root, meshHome, workspace.id, sessionId, true, true);
     const projection = cache.sessions[sessionId];
     const archived = registry.archivedSessionIds.includes(sessionId);
     if (!existsSync(location.headerPath)) {
@@ -553,7 +617,7 @@ function storageLocation(
   registered: boolean,
   sessionRegistered: boolean,
 ): WorkspaceStorageLocation {
-  const projectKey = workspaceProjectKey(root);
+  const projectKey = workspaceProjectKeyFromCanonicalRoot(root);
   const sessionsRoot = join(meshHome, "sessions");
   const projectDirectory = join(sessionsRoot, projectKey);
   const sessionDirectory = join(projectDirectory, sessionId);
