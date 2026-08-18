@@ -6,8 +6,8 @@ Implementation branch: **`main`**
 
 Verified committed implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
 
-Latest verified increment: **DSH-aligned desktop sidebar actions in the current
-working tree on 2026-08-18**
+Latest verified increment: **Codex-aligned window-level Desktop right sidebar
+and attention-driven Agent startup in the current working tree on 2026-08-18**
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -55,26 +55,48 @@ typed IPC. A native directory picker can register or open another project, the
 project-grouped sidebar can create and explicitly select isolated sessions, and
 the replaceable host serializes every switch through close-and-open recovery.
 Cold summaries expose title, preview, recency, message count, active state, and
-missing/corrupt state without giving the renderer direct storage access.
+missing/corrupt state without giving the renderer direct storage access. The
+derived projection writer recovers locks left by dead processes while preserving
+live-writer exclusion, so one interrupted cache update cannot freeze every later
+session title and preview.
 
 The desktop shell now follows a flatter Codex/DSH-inspired hierarchy. Its left
 project navigation uses Codex's 275 px preferred width and collapses completely,
-leaving its toggle in the macOS title-bar safe area; the right member/task panel
-collapses to 48 px, and the provisional Mesh wordmark is omitted.
+leaving its toggle in the macOS title-bar safe area. The right member/task panel
+is a third application-shell column at the outer window edge rather than a child
+of the active session view, and it collapses completely from 320 px to 0 while
+leaving its toggle at one fixed title-bar coordinate on the outer-right window
+edge. The provisional Mesh wordmark is omitted.
 Project rows use folder icons that swap to disclosure chevrons on hover, default
 to five visible sessions with an explicit overflow action, and keep at most one
 reusable blank session. Desktop startup archives redundant historical blanks per
-workspace while preserving the current or newest blank. Every nonblank session,
-including the highlighted current one, exposes DSH-style hover actions for
-renaming and recoverable archival. Explicit titles remain local catalog metadata
-outside the Room ledger. Archiving the current session first switches to another
-valid session or a fresh blank. Project
+workspace while preserving the current or newest blank. Every valid session,
+including a reusable blank or the highlighted current one, exposes DSH-style
+hover actions for renaming and recoverable archival. A renamed blank keeps its
+explicit title instead of being forced back to “新会话”. Explicit titles remain
+local catalog metadata outside the Room ledger. Archiving the current session
+first switches to another valid session or a fresh blank. Project
 rows expose matching rename and remove actions; removal hides only the registration,
 preserves the project directory and all session data, and reopening the same path
 restores it. Conversation members live in the right panel.
 The renderer now uses the Codex system-font stack, 14/12/11 px type hierarchy,
 and neutral gray palette. Room identity, shared-history semantics, Agent actions,
 and diagnostic boundaries are unchanged by this visual refinement.
+
+The Room shell now keeps only the active session title in its top bar. Repeated
+workspace, local/shared, and Agent-count labels are omitted. Per-session
+configuration remains beside “对话 / 轨迹” as the third main-view tab; the left
+footer is intentionally empty until application-level settings exist. The right
+sidebar is one keyboard-navigable “成员 / 任务” tab panel instead of two stacked
+sections. It remains at the window edge across conversation, trajectory, and
+configuration views; collapsing it removes the panel and its contents without
+leaving an icon rail. Its 46 px title-bar spacer and 32 px tab row match the main
+session chrome, so both navigation dividers share one 78 px baseline. Opening,
+selecting, or reloading a session leaves its Agents cold. A Human message is
+committed first and then starts only the Agents selected by its resolved
+`attention`; durable cursors recover that message after startup. Each Agent still
+has an independent start/stop action in the member list, so the default does not
+remove local lifecycle control.
 
 The Desktop renderer now uses Tailwind CSS v4 through its official Vite plugin,
 Radix Primitives for tabs, collapsibles, menus, selects, switches, portals,
@@ -102,7 +124,7 @@ configuration boundary remains closed to the two built-in adapter kinds.
 | Room kernel | Implemented, evaluated, and accepted in Phase 0 |
 | Real Agent vertical slice | Implemented and verified in Phase 1 |
 | Candidate reconciliation | Implemented and verified in Phase 2A |
-| Desktop product | Chinese local-room GUI with project-grouped workspace/session navigation, trajectory, and editable per-session config-v1/Agent settings |
+| Desktop product | Restrained Chinese local-room GUI with cold project/session navigation, attention-driven Agent startup, window-level tabbed member/task sidebar, trajectory, and editable per-session configuration |
 | CLI | Headless Room workflows, session list/new/select, and revision-safe config preview, validation, and apply commands |
 | Package architecture | Explicit contract/provider/composition seams; dependency and browser boundaries enforced in `pnpm verify` |
 | Persistence | Machine-local workspace catalog plus isolated per-session config and SQLite under `MESH_HOME` |
@@ -363,6 +385,32 @@ sidebars at 1440×900 and 1040×680 without renderer diagnostics, clipping, or
 horizontal overflow. The production renderer changed from 65.13 kB CSS / 271.53
 kB JS to 71.51 kB CSS / 393.11 kB JS before gzip; Radix and Lucide are imported
 through tree-shakeable subpaths.
+
+The minimal Room-shell follow-up passed `pnpm verify` and `pnpm smoke:desktop`
+on macOS on 2026-08-18. Electron smoke uses deterministic injected adapters to
+verify that navigation leaves Agents cold, the first Human team message starts
+both configured Agents without launching real vendor CLIs, one Agent can still
+be started and stopped from its member row,
+that the merged member/task tabs switch correctly, and that configuration opens
+as the third main-view tab. The blank-session follow-up recovers dead
+derived-cache locks and verifies that blank rows expose their two-item hover
+menu. Twenty workspace tests, seventeen collaboration tests, and twenty-nine
+Desktop package tests pass. Fresh
+1440×900 and 1040×680 captures cover Room, task, configuration, trajectory,
+menus, and collapsed sidebars without renderer diagnostics or horizontal
+overflow.
+
+The window-level right-sidebar follow-up passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-18. Smoke verifies that the right panel
+is rooted in the application shell, spans the complete viewport height, remains
+available across Room, trajectory, and configuration views, and collapses to
+zero width with no rendered icon rail or hidden focus targets. Follow-up smoke
+assertions keep the toggle at the same viewport coordinate across both states
+and pin its right edge to the viewport while aligning the right tab-row bottom
+and height exactly with the main session navigation. Fresh 1440×900 and
+1040×680 captures cover expanded members, tasks, trajectory, configuration, and
+the fully collapsed state without renderer diagnostics, clipping, or horizontal
+overflow.
 
 ## Known limitations
 

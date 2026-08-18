@@ -190,6 +190,17 @@ async function runSmoke(): Promise<void> {
         const firstWorkspaceId = initialCatalog.activeWorkspaceId;
         const firstSessionId = initialCatalog.activeSessionId;
         await window.mesh.postMessage({ text: "First smoke Room history" });
+        let firstMessageSnapshot = await window.mesh.snapshot();
+        const firstMessageDeadline = Date.now() + 4000;
+        while (
+          firstMessageSnapshot.agents.filter((agent) => agent.state !== "offline" && agent.state !== "error").length !== 2
+          && Date.now() < firstMessageDeadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          firstMessageSnapshot = await window.mesh.snapshot();
+        }
+        const messageStartedAgentCount = firstMessageSnapshot.agents
+          .filter((agent) => agent.state !== "offline" && agent.state !== "error").length;
 
         const newSessionButton = document.querySelector(
           '[data-workspace-id="' + firstWorkspaceId + '"] .new-session'
@@ -197,7 +208,10 @@ async function runSmoke(): Promise<void> {
         if (!(newSessionButton instanceof HTMLButtonElement)) throw new Error("new session action is missing");
         newSessionButton.click();
         await waitFor(
-          () => document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id') !== firstSessionId,
+          () => {
+            const active = document.querySelector('[data-ui="session-item"][aria-current="page"]')?.getAttribute('data-session-id');
+            return active !== null && active !== undefined && active !== firstSessionId;
+          },
           "new session did not become active"
         );
         const createdCatalog = await window.mesh.workspaceCatalog();
@@ -229,6 +243,9 @@ async function runSmoke(): Promise<void> {
         const blankCreatedCount = blankCreatedCatalog.workspaces.find(
           (item) => item.id === firstWorkspaceId
         )?.sessions.length ?? 0;
+        const blankSessionActionAvailable = document.querySelector(
+          '[data-session-id="' + blankSessionId + '"]'
+        )?.closest('.session-row')?.querySelector('.session-actions-trigger') instanceof HTMLButtonElement;
 
         await window.mesh.postMessage({ text: "Third smoke Room history" });
         let previousSessionId = blankSessionId;
@@ -373,11 +390,54 @@ async function runSmoke(): Promise<void> {
         rightSidebarToggle.click();
         await waitFor(() => document.querySelector('[data-ui="right-sidebar"]')?.getAttribute('data-state') === 'collapsed', "right sidebar did not collapse");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const collapsedRightWidth = document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0;
+        const collapsedRightSidebar = document.querySelector('[data-ui="right-sidebar"]');
+        const collapsedRightWidth = collapsedRightSidebar?.getBoundingClientRect().width ?? 0;
+        const collapsedRightChildCount = collapsedRightSidebar?.children.length ?? -1;
+        const collapsedRightToggleRect = rightSidebarToggle.getBoundingClientRect();
         rightSidebarToggle.click();
         await waitFor(() => document.querySelector('[data-ui="right-sidebar"]')?.getAttribute('data-state') === 'expanded', "right sidebar did not expand");
         await new Promise((resolve) => setTimeout(resolve, 350));
-        const expandedRightWidth = document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0;
+        const expandedRightRect = document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect();
+        const expandedRightWidth = expandedRightRect?.width ?? 0;
+        const rightSidebarWindowAnchored = expandedRightRect?.top === 0
+          && expandedRightRect.height === document.documentElement.clientHeight;
+        const expandedRightToggleRect = rightSidebarToggle.getBoundingClientRect();
+        const rightToggleStayedFixed = collapsedRightToggleRect.left === expandedRightToggleRect.left
+          && collapsedRightToggleRect.top === expandedRightToggleRect.top;
+        const rightToggleWindowAnchored = collapsedRightToggleRect.right === document.documentElement.clientWidth - 12
+          && expandedRightToggleRect.right === document.documentElement.clientWidth - 12;
+        const mainNavigationRect = document.querySelector('.view-tabs')?.getBoundingClientRect();
+        const rightNavigationRect = document.querySelector('.right-sidebar-heading')?.getBoundingClientRect();
+        const rightNavigationAligned = mainNavigationRect !== undefined
+          && rightNavigationRect !== undefined
+          && mainNavigationRect.height === rightNavigationRect.height
+          && mainNavigationRect.bottom === rightNavigationRect.bottom;
+        const rightPanelTabs = [...document.querySelectorAll('[data-ui="right-panel-tabs"] [role="tab"]')];
+        const rightPanelTabLabels = rightPanelTabs.map((tab) => tab.textContent?.trim() ?? "");
+        const taskTab = rightPanelTabs.find((tab) => tab.textContent?.includes("任务"));
+        if (!(taskTab instanceof HTMLButtonElement)) throw new Error("task panel tab is missing");
+        taskTab.click();
+        await waitFor(() => document.querySelector('.right-task-panel') !== null, "task panel did not open");
+        const taskPanelRendered = document.querySelector('.task-panel') !== null;
+        const membersTab = [...document.querySelectorAll('[data-ui="right-panel-tabs"] [role="tab"]')]
+          .find((tab) => tab.textContent?.includes("成员"));
+        if (!(membersTab instanceof HTMLButtonElement)) throw new Error("member panel tab is missing");
+        membersTab.click();
+        await waitFor(() => document.querySelector('.agent-rail') !== null, "member panel did not open");
+        const memberPanelRendered = document.querySelector('.agent-rail') !== null;
+        const memberStatusDotEdges = [...document.querySelectorAll('.agent-card .status-dot')]
+          .map((dot) => dot.getBoundingClientRect().right);
+        const memberStatusDotsAligned = memberStatusDotEdges.length === 3
+          && Math.max(...memberStatusDotEdges) - Math.min(...memberStatusDotEdges) < 0.5;
+        const firstAgentAction = document.querySelector('[data-ui="agent-card"] .agent-action');
+        if (!(firstAgentAction instanceof HTMLButtonElement)) throw new Error("individual Agent action is missing");
+        await waitFor(() => !firstAgentAction.disabled && firstAgentAction.textContent?.trim() === "启动", "navigation unexpectedly started an Agent");
+        const navigationStayedCold = firstAgentAction.textContent?.trim() === "启动";
+        firstAgentAction.click();
+        await waitFor(() => !firstAgentAction.disabled && firstAgentAction.textContent?.trim() === "停止", "individual Agent did not start");
+        firstAgentAction.click();
+        await waitFor(() => !firstAgentAction.disabled && firstAgentAction.textContent?.trim() === "启动", "individual Agent did not stop");
+        const individualAgentToggleWorks = firstAgentAction.textContent?.trim() === "启动";
         const navigationHeight = (document.querySelector('.topbar')?.getBoundingClientRect().height ?? 0)
           + (document.querySelector('.view-tabs')?.getBoundingClientRect().height ?? 0);
         const rootStyle = getComputedStyle(document.documentElement);
@@ -444,6 +504,7 @@ async function runSmoke(): Promise<void> {
           blankReusedSessionId: blankReusedCatalog.activeSessionId,
           blankCreatedCount,
           blankReusedCount,
+          blankSessionActionAvailable,
           overflowSessionCount: overflowCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
           archivedSessionCount: archivedCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
           sessionMenuItemLabels,
@@ -485,7 +546,19 @@ async function runSmoke(): Promise<void> {
           expandedToggleLeft: expandedToggleRect.left,
           expandedToggleTop: expandedToggleRect.top,
           collapsedRightWidth,
+          collapsedRightChildCount,
           expandedRightWidth,
+          rightSidebarWindowAnchored,
+          rightToggleStayedFixed,
+          rightToggleWindowAnchored,
+          rightNavigationAligned,
+          rightPanelTabLabels,
+          taskPanelRendered,
+          memberPanelRendered,
+          memberStatusDotsAligned,
+          messageStartedAgentCount,
+          navigationStayedCold,
+          individualAgentToggleWorks,
           navigationHeight,
           rootFontSize: rootStyle.fontSize,
           rootFontFamily: rootStyle.fontFamily,
@@ -509,6 +582,7 @@ async function runSmoke(): Promise<void> {
       readonly blankReusedSessionId: string;
       readonly blankCreatedCount: number;
       readonly blankReusedCount: number;
+      readonly blankSessionActionAvailable: boolean;
       readonly overflowSessionCount: number;
       readonly archivedSessionCount: number;
       readonly sessionMenuItemLabels: readonly string[];
@@ -550,7 +624,19 @@ async function runSmoke(): Promise<void> {
       readonly expandedToggleLeft: number;
       readonly expandedToggleTop: number;
       readonly collapsedRightWidth: number;
+      readonly collapsedRightChildCount: number;
       readonly expandedRightWidth: number;
+      readonly rightSidebarWindowAnchored: boolean;
+      readonly rightToggleStayedFixed: boolean;
+      readonly rightToggleWindowAnchored: boolean;
+      readonly rightNavigationAligned: boolean;
+      readonly rightPanelTabLabels: readonly string[];
+      readonly taskPanelRendered: boolean;
+      readonly memberPanelRendered: boolean;
+      readonly memberStatusDotsAligned: boolean;
+      readonly messageStartedAgentCount: number;
+      readonly navigationStayedCold: boolean;
+      readonly individualAgentToggleWorks: boolean;
       readonly navigationHeight: number;
       readonly rootFontSize: string;
       readonly rootFontFamily: string;
@@ -571,6 +657,7 @@ async function runSmoke(): Promise<void> {
       navigation.blankSessionId !== navigation.blankReusedSessionId ||
       navigation.blankCreatedCount !== 3 ||
       navigation.blankReusedCount !== 3 ||
+      !navigation.blankSessionActionAvailable ||
       navigation.overflowSessionCount !== 6 ||
       navigation.archivedSessionCount !== 5 ||
       navigation.sessionMenuItemLabels.join("|") !== "重命名|归档会话" ||
@@ -591,8 +678,8 @@ async function runSmoke(): Promise<void> {
       navigation.finalWorkspaceId !== navigation.firstWorkspaceId ||
       navigation.finalSessionId !== navigation.firstSessionId ||
       navigation.collapsedLeftWidth !== 0 ||
-      navigation.collapsedMainWidth !== navigation.collapsedViewportWidth ||
-      navigation.collapsedGridWidth !== navigation.collapsedViewportWidth ||
+      navigation.collapsedMainWidth + navigation.expandedRightWidth !== navigation.collapsedViewportWidth ||
+      navigation.collapsedGridWidth !== navigation.collapsedMainWidth ||
       navigation.collapsedSidebarOverlayWidth !== 148 ||
       !navigation.collapsedToggleHitTarget ||
       !navigation.collapsedCreateHitTarget ||
@@ -613,8 +700,23 @@ async function runSmoke(): Promise<void> {
       navigation.collapsedToggleHeight !== 30 ||
       navigation.expandedToggleLeft !== navigation.collapsedToggleLeft ||
       navigation.expandedToggleTop !== navigation.collapsedToggleTop ||
-      navigation.collapsedRightWidth !== 48 ||
+      navigation.collapsedRightWidth !== 0 ||
+      navigation.collapsedRightChildCount !== 0 ||
       navigation.expandedRightWidth < 292 ||
+      !navigation.rightSidebarWindowAnchored ||
+      !navigation.rightToggleStayedFixed ||
+      !navigation.rightToggleWindowAnchored ||
+      !navigation.rightNavigationAligned ||
+      navigation.rightPanelTabLabels.length !== 2 ||
+      !navigation.rightPanelTabLabels[0]?.startsWith("成员") ||
+      !navigation.rightPanelTabLabels[1]?.startsWith("任务") ||
+      !navigation.taskPanelRendered ||
+      !navigation.memberPanelRendered ||
+      !navigation.memberStatusDotsAligned ||
+      navigation.messageStartedAgentCount !== 2 ||
+      !navigation.navigationStayedCold ||
+      !navigation.individualAgentToggleWorks ||
+      startedAgentCount() !== 2 ||
       navigation.navigationHeight > 78 ||
       navigation.rootFontSize !== "14px" ||
       !navigation.rootFontFamily.includes("-apple-system") ||
@@ -665,6 +767,7 @@ async function runSmoke(): Promise<void> {
             gridOverflow: grid === null ? true : grid.scrollWidth > grid.clientWidth,
             minimumSessionWidth: sessionItems.length === 0 ? 0 : Math.min(...sessionItems.map((item) => item.getBoundingClientRect().width)),
             sidebarWidth: sidebar?.getBoundingClientRect().width ?? 0,
+            rightSidebarWidth: document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0,
             chatWidth: document.querySelector('[data-ui="chat-column"]')?.getBoundingClientRect().width ?? 0
           };
           const leftSidebarToggle = document.querySelector(".left-sidebar-toggle");
@@ -679,6 +782,7 @@ async function runSmoke(): Promise<void> {
             collapsedMainLeft: collapsedMain?.getBoundingClientRect().left ?? -1,
             collapsedMainWidth: collapsedMain?.getBoundingClientRect().width ?? 0,
             collapsedGridWidth: collapsedGrid?.getBoundingClientRect().width ?? 0,
+            collapsedRightSidebarWidth: document.querySelector('[data-ui="right-sidebar"]')?.getBoundingClientRect().width ?? 0,
             collapsedChatWidth: document.querySelector('[data-ui="chat-column"]')?.getBoundingClientRect().width ?? 0
           };
           leftSidebarToggle.click();
@@ -713,12 +817,14 @@ async function runSmoke(): Promise<void> {
       readonly gridOverflow: boolean;
       readonly minimumSessionWidth: number;
       readonly sidebarWidth: number;
+      readonly rightSidebarWidth: number;
       readonly chatWidth: number;
       readonly collapsedSidebarActive: boolean;
       readonly collapsedDocumentOverflow: boolean;
       readonly collapsedMainLeft: number;
       readonly collapsedMainWidth: number;
       readonly collapsedGridWidth: number;
+      readonly collapsedRightSidebarWidth: number;
       readonly collapsedChatWidth: number;
       readonly configViewOverflow: boolean;
       readonly configScrollOverflow: boolean;
@@ -738,8 +844,8 @@ async function runSmoke(): Promise<void> {
         !layout.collapsedSidebarActive ||
         layout.collapsedDocumentOverflow ||
         layout.collapsedMainLeft !== 0 ||
-        layout.collapsedMainWidth !== layout.width ||
-        layout.collapsedGridWidth !== layout.width ||
+        layout.collapsedMainWidth + layout.collapsedRightSidebarWidth !== layout.width ||
+        layout.collapsedGridWidth !== layout.collapsedMainWidth ||
         layout.collapsedChatWidth <= layout.chatWidth ||
         layout.configViewOverflow ||
         layout.configScrollOverflow ||
@@ -802,6 +908,21 @@ async function runSmoke(): Promise<void> {
           join(screenshotDirectory, `workspace-${String(size.width)}x${String(size.height)}.png`),
           workspaceScreenshot.toPNG(),
         );
+        await window.webContents.executeJavaScript(
+          `([...document.querySelectorAll('[data-ui="right-panel-tabs"] [role="tab"]')].find((button) => button.textContent?.includes("任务")))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const taskPanelScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `workspace-tasks-${String(size.width)}x${String(size.height)}.png`),
+          taskPanelScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `([...document.querySelectorAll('[data-ui="right-panel-tabs"] [role="tab"]')].find((button) => button.textContent?.includes("成员")))?.click()`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
         await window.webContents.executeJavaScript(
           `document.querySelector('.session-row.active .session-actions-trigger')?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }))`,
           true,

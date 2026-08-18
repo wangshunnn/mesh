@@ -192,10 +192,10 @@ classified from its live Room snapshot rather than a possibly stale cold
 projection.
 
 Desktop removal is deliberately a recoverable catalog operation, not destructive
-Room deletion. Any valid nonblank session row can be archived; when it is current,
-the host first switches the immutable composition to another valid session or a
-fresh blank. Registry ownership, session directory, canonical ledger,
-configuration, and SQLite database remain intact below `MESH_HOME`; the
+Room deletion. Any valid session row, including a reusable blank, can be archived;
+when it is current, the host first switches the immutable composition to another
+valid session or a fresh blank. Registry ownership, session directory, canonical
+ledger, configuration, and SQLite database remain intact below `MESH_HOME`; the
 browser-safe catalog filters archived sessions from normal navigation. Explicit
 renames are catalog metadata and never enter Agent prompts or canonical history.
 Session branching is deliberately not a catalog primitive: it would first require

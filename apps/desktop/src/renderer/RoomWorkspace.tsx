@@ -6,7 +6,7 @@ import type { RoomSnapshot, WorkspaceCatalogView } from "@ai-mesh/application";
 import { type SubjectRef, type TaskStatus } from "@ai-mesh/protocol";
 
 import type { DesktopAgentProbe } from "../shared/api.js";
-import { displaySessionTitle } from "./format.js";
+import { displaySessionTitle, formatMessageTime } from "./format.js";
 import { Button, IconButton, SelectControl, TabList } from "./ui/controls.js";
 
 export type WorkspaceView = "room" | "trajectory" | "configuration";
@@ -17,13 +17,14 @@ export interface RuntimeProps {
   readonly invoke: (key: string, operation: () => Promise<RoomSnapshot>) => Promise<boolean>;
 }
 
-interface HeaderProps extends RuntimeProps {
+interface HeaderProps {
+  readonly snapshot: RoomSnapshot;
   readonly catalog: WorkspaceCatalogView | undefined;
   readonly view: WorkspaceView;
   readonly onViewChange: (view: WorkspaceView) => void;
 }
 
-export function Header({ snapshot, catalog, busy, invoke, view, onViewChange }: HeaderProps): React.JSX.Element {
+export function Header({ snapshot, catalog, view, onViewChange }: HeaderProps): React.JSX.Element {
   const activeWorkspace = catalog?.workspaces.find(({ id }) => id === catalog.activeWorkspaceId);
   const activeSession = activeWorkspace?.sessions.find(({ id }) => id === catalog?.activeSessionId);
   return (
@@ -31,27 +32,8 @@ export function Header({ snapshot, catalog, busy, invoke, view, onViewChange }: 
       <header className="topbar">
         <div className="session-heading">
           <h1 title={activeSession?.title}>{activeSession === undefined ? "正在载入会话" : displaySessionTitle(activeSession)}</h1>
-          <div className="session-context">
-            <span>{activeWorkspace?.name ?? "本地工作区"}</span>
-            <i />
-            <span>共享 Room</span>
-            <i />
-            <span>{snapshot.agents.length} 个 Agent</span>
-          </div>
         </div>
         <div className="topbar-drag-zone" data-ui="topbar-drag-zone" aria-hidden="true" />
-        <div className="topbar-actions">
-          <span className="local-pill"><i /> 本地</span>
-          <Button
-            tone="primary"
-            compact
-            className="compact"
-            disabled={busy !== undefined}
-            onClick={() => void invoke("start-all", () => window.mesh.startAvailableAgents())}
-          >
-            {busy === "start-all" ? "正在启动…" : "启动可用 Agent"}
-          </Button>
-        </div>
       </header>
       <nav className="breadcrumb view-tabs" aria-label="会话视图" data-ui="workspace-tabs">
         <TabList
@@ -76,7 +58,7 @@ interface AgentRailProps extends RuntimeProps {
 export function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): React.JSX.Element {
   const availability = useMemo(() => new Map(probes.map((probe) => [probe.id, probe])), [probes]);
   return (
-    <section className="agent-rail">
+    <section className="agent-rail" role="tabpanel" aria-label="成员">
       <div className="agent-list">
         <article className="agent-card human-member" title="当前本地用户">
           <div className="agent-card-top">
@@ -96,6 +78,8 @@ export function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): R
           return (
             <article
               className="agent-card"
+              data-agent-id={agent.id}
+              data-ui="agent-card"
               title={`${agent.adapterKind} · ${probe?.available === false ? "未检测到" : probe?.version ?? "检测中"}`}
               key={agent.id}
             >
@@ -105,7 +89,6 @@ export function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): R
                   <strong>{agent.name}</strong>
                   <span>{presenceLabel(agent.state)} · @{agent.handle}</span>
                 </div>
-                <i className={`status-dot ${agent.state}`} title={presenceLabel(agent.state)} />
                 <button
                   type="button"
                   className="agent-action"
@@ -114,6 +97,7 @@ export function AgentRail({ snapshot, probes, busy, invoke }: AgentRailProps): R
                 >
                   {busy === key ? "…" : running ? "停止" : "启动"}
                 </button>
+                <i className={`status-dot ${agent.state}`} title={presenceLabel(agent.state)} />
               </div>
             </article>
           );
@@ -151,7 +135,7 @@ export function MessageList({
               <div className="message-meta">
                 <strong>{participantName(snapshot, message.from)}</strong>
                 <span>{participantLabel(snapshot, message.from)}</span>
-                <time>{formatClock(message.createdAt)}</time>
+                <time>{formatMessageTime(message.createdAt)}</time>
                 <span className="message-sequence">#{message.sequence}</span>
               </div>
               <p>{renderMentions(message.text)}</p>
@@ -352,12 +336,4 @@ function presenceLabel(state: string): string {
     error: "异常",
   };
   return labels[state] ?? state;
-}
-
-function formatClock(timestamp: number): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(timestamp);
 }

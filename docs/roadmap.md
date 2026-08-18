@@ -2,8 +2,8 @@
 
 Last updated: **2026-08-18**
 
-Latest verified increment: **DSH-aligned desktop sidebar actions in the current
-working tree on 2026-08-18**
+Latest verified increment: **Codex-aligned window-level Desktop right sidebar
+and attention-driven Agent startup in the current working tree on 2026-08-18**
 
 Current position: **Phase 2A verified; Phase 3A navigation and renderer foundation are verified, and Agent onboarding diagnostics are next**
 
@@ -238,23 +238,25 @@ Status: **verified in the working tree based on `911c4fe` on 2026-08-17**.
 - [x] Flatten the desktop hierarchy around one primary new-session action,
   lightweight project/session rows, and compact Agent presence
 - [x] Add a Codex-style 275→0 px left collapse with a native-title-bar action
-  and 320→48 px right collapse, with conversation members in the right panel
+  and a window-level 320→0 px right collapse, with conversation members in the
+  right panel
 - [x] Use folder/disclosure project rows and cap the collapsed session list at
   five rows behind an explicit “展示更多” action
 - [x] Reuse the workspace's one blank session instead of creating duplicates
   from repeated New Session intents
 - [x] Archive redundant historical blanks on Desktop startup, preserving the
   current or newest blank and every underlying Room database
-- [x] Allow nonblank current or historical sessions to leave the catalog through
-  recoverable archival, switching the live composition before archiving the current
-  session and preserving all local Room data
-- [x] Match DSH's session-row affordance with a hover ellipsis on the highlighted
-  row and local “重命名” / non-destructive “归档会话” actions
+- [x] Allow any valid current or historical session, including a reusable blank,
+  to leave the catalog through recoverable archival, switching the live
+  composition before archiving the current session and preserving all local Room
+  data
+- [x] Match DSH's session-row affordance with a hover ellipsis on valid rows and
+  local “重命名” / non-destructive “归档会话” actions
 - [x] Add project-row hover actions for durable local rename and recoverable
   registration removal, with explicit confirmation that project and Room data stay
   intact and reopening the same directory restores the registration
-- [x] Use session-level conversation/trajectory/config tabs with an understated
-  underline active state and compact conversation navigation
+- [x] Use session-level conversation/trajectory/configuration tabs with an
+  understated underline active state and compact conversation navigation
 - [x] Align the renderer with Codex's system font stack, 14/12/11 px type scale,
   neutral gray palette, and macOS title-bar safe inset
 - [x] Keep workspace-switch busy state from visually disabling unrelated controls
@@ -290,6 +292,58 @@ Status: **verified at `79f53d9` on 2026-08-17**.
 This increment changes only the renderer implementation and visual foundation;
 the browser-safe client contract, typed IPC, Room semantics, config-v1, storage,
 and Agent lifecycle remain unchanged.
+
+#### Follow-up increment — Minimal Room chrome and demand-driven Agent lifecycle
+
+Status: **verified in the working tree on 2026-08-18**.
+
+- [x] Keep only the active session title in the top bar; remove repeated
+  workspace, shared/local, and Agent-count labels
+- [x] Keep per-session configuration as the third main-view tab and reserve the
+  left footer for future application-level settings
+- [x] Merge members and tasks into one keyboard-navigable right-sidebar tab panel
+- [x] Keep Agents cold after Desktop load, workspace/session selection, and
+  configuration reload
+- [x] Commit each Human message before starting only the Agents selected by its
+  resolved `attention`
+- [x] Keep availability probes asynchronous, briefly deduplicated by command
+  across compositions, and outside the serialized session-navigation path
+- [x] Recover dead derived-projection writer locks without displacing a live
+  writer, so interrupted cache writes cannot leave active sessions titled “新会话”
+- [x] Expose the hover action menu for reusable blank sessions and preserve an
+  explicit blank-session rename
+- [x] Retain independent stop/start actions on Agent member rows
+- [x] Preserve the 275→0 px left collapse and move the right panel to a
+  window-level 320→0 px complete-collapse contract
+- [x] Verify deterministic lazy startup and blank-session actions without
+  launching real vendor CLIs in smoke
+- [x] Extend 1440×900 and 1040×680 visual QA to the merged task panel and
+  configuration tab
+
+This is Desktop lifecycle policy only. It does not change config-v1, Room
+attention or visibility, adapter contracts, CLI defaults, or headless runtime
+semantics.
+
+#### Follow-up increment — Window-level right sidebar
+
+Status: **verified in the working tree on 2026-08-18**.
+
+- [x] Move the member/task panel out of the active session grid into the third
+  application-shell column at the outer right edge
+- [x] Keep the panel available beside conversation, trajectory, and configuration
+  views without changing their data ownership
+- [x] Collapse the panel from its responsive 320/300/292 px width to 0 px and
+  render no compact icon rail or hidden interactive content
+- [x] Keep one expand/collapse action absolutely anchored to the outer-right
+  window edge at the same viewport coordinate in both states
+- [x] Match the main 46 px title bar plus 32 px navigation row so the panel and
+  session navigation dividers align on the same baseline
+- [x] Verify full-window anchoring, zero-width collapse, keyboard tabs, Agent
+  actions, tasks, and 1440×900 / 1040×680 visual layouts in Electron smoke
+
+This follow-up changes only Desktop shell composition and responsive behavior;
+it does not change Room state, Agent lifecycle policy, configuration, IPC, or
+headless APIs.
 
 #### Next increment — Agent onboarding diagnostics
 

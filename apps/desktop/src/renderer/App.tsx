@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  ListTodo,
-  PanelRight,
-  Users,
-} from "lucide-react";
+import { PanelRight } from "lucide-react";
 
 import type {
   RoomSnapshot,
@@ -21,7 +17,9 @@ import { WorkspaceSidebar } from "./WorkspaceSidebar.js";
 import { AgentRail, Composer, Header, MessageList, TaskPanel, type WorkspaceView } from "./RoomWorkspace.js";
 import { TrajectoryView } from "./TrajectoryView.js";
 import { emptySnapshot, previewCatalog, previewConfig, previewSnapshot } from "./preview.js";
-import { IconButton } from "./ui/controls.js";
+import { IconButton, TabList } from "./ui/controls.js";
+
+type RightPanel = "members" | "tasks";
 
 function isWorkspaceTransitionBusy(busy: string | undefined): boolean {
   return busy === "open-workspace"
@@ -39,6 +37,7 @@ export function App(): React.JSX.Element {
   const [view, setView] = useState<WorkspaceView>("room");
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [rightPanel, setRightPanel] = useState<RightPanel>("members");
   const [busy, setBusy] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -237,7 +236,7 @@ export function App(): React.JSX.Element {
 
   return (
     <main
-      className={`shell ${leftSidebarCollapsed ? "left-sidebar-collapsed" : ""} ${workspaceTransitioning ? "workspace-transitioning" : ""}`}
+      className={`shell ${leftSidebarCollapsed ? "left-sidebar-collapsed" : ""} ${rightSidebarCollapsed ? "right-sidebar-collapsed" : ""} ${workspaceTransitioning ? "workspace-transitioning" : ""}`}
       aria-busy={workspaceTransitioning}
       data-ui="app-shell"
     >
@@ -276,8 +275,6 @@ export function App(): React.JSX.Element {
         <Header
           snapshot={snapshot}
           catalog={catalog}
-          busy={runtimeBusy}
-          invoke={invoke}
           view={view}
           onViewChange={setView}
         />
@@ -288,54 +285,14 @@ export function App(): React.JSX.Element {
           </div>
         )}
         <div
-          className={`workspace-grid ${view === "room" ? (rightSidebarCollapsed ? "right-collapsed" : "") : `${view}-mode`}`}
+          className={`workspace-grid ${view}-mode`}
           data-ui="workspace-grid"
-          data-right-state={rightSidebarCollapsed ? "collapsed" : "expanded"}
         >
           {view === "room" ? (
-            <>
-              <section className="chat-column" data-ui="chat-column">
-                <MessageList snapshot={snapshot} chatEnd={chatEnd} />
-                <Composer snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
-              </section>
-              <aside
-                className={`right-column ${rightSidebarCollapsed ? "collapsed" : ""}`}
-                data-ui="right-sidebar"
-                data-state={rightSidebarCollapsed ? "collapsed" : "expanded"}
-              >
-                <div className="right-sidebar-heading">
-                  {rightSidebarCollapsed ? null : (
-                    <div>
-                      <strong>会话成员</strong>
-                      <span>{snapshot.agents.length + 1}</span>
-                    </div>
-                  )}
-                  <IconButton
-                    className="right-sidebar-toggle"
-                    label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
-                    onClick={() => setRightSidebarCollapsed((value) => !value)}
-                  >
-                    <PanelRight className="size-4" strokeWidth={1.7} />
-                  </IconButton>
-                </div>
-                {rightSidebarCollapsed ? (
-                  <div className="right-sidebar-rail" aria-hidden="true">
-                    <Users className="size-[17px]" />
-                    <ListTodo className="size-[17px]" />
-                  </div>
-                ) : (
-                  <>
-                    <AgentRail snapshot={snapshot} probes={probes} busy={runtimeBusy} invoke={invoke} />
-                    <section className="right-task-panel">
-                      <div className="panel-tabs">
-                        <button type="button" className="active">任务 <span>{snapshot.tasks.length}</span></button>
-                      </div>
-                      <TaskPanel snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
-                    </section>
-                  </>
-                )}
-              </aside>
-            </>
+            <section className="chat-column" data-ui="chat-column">
+              <MessageList snapshot={snapshot} chatEnd={chatEnd} />
+              <Composer snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
+            </section>
           ) : view === "trajectory" ? (
             <TrajectoryView snapshot={snapshot} />
           ) : (
@@ -349,6 +306,47 @@ export function App(): React.JSX.Element {
           )}
         </div>
       </section>
+      <aside
+        className={`right-column ${rightSidebarCollapsed ? "collapsed" : ""}`}
+        data-ui="right-sidebar"
+        data-state={rightSidebarCollapsed ? "collapsed" : "expanded"}
+        aria-label="成员与任务"
+        aria-hidden={rightSidebarCollapsed}
+      >
+        {rightSidebarCollapsed ? null : (
+          <>
+            <div className="right-sidebar-titlebar" aria-hidden="true" />
+            <div className="right-sidebar-heading">
+              <div className="right-panel-tab-shell" data-ui="right-panel-tabs">
+                <TabList
+                  value={rightPanel}
+                  onValueChange={setRightPanel}
+                  ariaLabel="侧栏面板"
+                  className="right-panel-tabs"
+                  items={[
+                    { value: "members", label: <>成员 <span>{snapshot.agents.length + 1}</span></> },
+                    { value: "tasks", label: <>任务 <span>{snapshot.tasks.length}</span></> },
+                  ]}
+                />
+              </div>
+            </div>
+            {rightPanel === "members" ? (
+              <AgentRail snapshot={snapshot} probes={probes} busy={runtimeBusy} invoke={invoke} />
+            ) : (
+              <section className="right-task-panel">
+                <TaskPanel snapshot={snapshot} busy={runtimeBusy} invoke={invoke} />
+              </section>
+            )}
+          </>
+        )}
+      </aside>
+      <IconButton
+        className="right-sidebar-toggle"
+        label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+        onClick={() => setRightSidebarCollapsed((value) => !value)}
+      >
+        <PanelRight className="size-4" strokeWidth={1.7} />
+      </IconButton>
     </main>
   );
 }

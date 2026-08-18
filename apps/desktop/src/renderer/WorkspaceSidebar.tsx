@@ -218,7 +218,7 @@ export function WorkspaceSidebar({
                         const active = activeWorkspace && session.id === catalog.activeSessionId;
                         const selectable = workspace.status === "available" && session.status === "ok";
                         const title = displaySessionTitle(session);
-                        const actionable = session.status === "ok" && session.messageCount > 0;
+                        const actionable = session.status === "ok";
                         const menuOpen = openSessionMenuId === session.id;
                         return (
                           <div
@@ -239,7 +239,9 @@ export function WorkspaceSidebar({
                               <span className="session-copy">
                                 <span className="session-title-row">
                                   <strong>{title}</strong>
-                                  <time>{formatSessionTime(session.updatedAt)}</time>
+                                  {session.messageCount === 0 ? null : (
+                                    <time>{formatSessionTime(session.updatedAt)}</time>
+                                  )}
                                   {session.status === "ok" ? null : (
                                     <em>{session.status === "corrupt" ? "损坏" : "缺失"}</em>
                                   )}
@@ -295,11 +297,6 @@ export function WorkspaceSidebar({
         </section>
       </div>
       }
-      {collapsed ? null : <div className="sidebar-footer">
-        <i aria-hidden="true" />
-        <strong>本地 Room</strong>
-        <span>共享上下文</span>
-      </div>}
       <RenameDialog
         target={renameTarget}
         busy={catalogMutationBusy}
