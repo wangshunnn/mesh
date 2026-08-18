@@ -594,7 +594,7 @@ export function recordWorkspaceSessionProjection(
   assertSessionProjection({ sessionId: location.sessionId, ...projection }, location.projectionCachePath);
   mkdirSync(dirname(location.projectionCachePath), { recursive: true, mode: 0o700 });
   const lockPath = `${location.projectionCachePath}.lock`;
-  const lockDescriptor = acquireLock(lockPath, WorkspaceRegistryLockedError);
+  const lockDescriptor = acquireProjectionCacheLock(lockPath);
   try {
     const cache = readProjectionCacheFailSoft(location.meshHome);
     writeProjectionCache(location.meshHome, {
@@ -606,6 +606,41 @@ export function recordWorkspaceSessionProjection(
     });
   } finally {
     releaseLock(lockDescriptor, lockPath);
+  }
+}
+
+/**
+ * Projection state is derived and fail-soft, so a lock left by a dead process
+ * must not permanently freeze every session title and preview. Live writers
+ * remain protected: their PID is still reachable and their lock is preserved.
+ */
+function acquireProjectionCacheLock(lockPath: string): number {
+  try {
+    return acquireLock(lockPath, WorkspaceRegistryLockedError);
+  } catch (error) {
+    if (!(error instanceof WorkspaceRegistryLockedError) || !projectionCacheLockIsStale(lockPath)) {
+      throw error;
+    }
+  }
+  rmSync(lockPath, { force: true });
+  return acquireLock(lockPath, WorkspaceRegistryLockedError);
+}
+
+function projectionCacheLockIsStale(lockPath: string): boolean {
+  let owner: string;
+  try {
+    owner = readFileSync(lockPath, "utf8").trim();
+  } catch (error) {
+    return isNodeError(error) && error.code === "ENOENT";
+  }
+  if (!/^[1-9][0-9]*$/.test(owner)) return false;
+  const pid = Number(owner);
+  if (!Number.isSafeInteger(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return isNodeError(error) && error.code === "ESRCH";
   }
 }
 

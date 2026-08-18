@@ -148,7 +148,8 @@ sessions; each session owns one strict identity header, config snapshot, and
 SQLite-backed canonical Room below `sessions/<project-key>/<session-id>/`.
 The readable project key includes a path digest to prevent normalization
 collisions. A derived fail-soft projection cache supports cold session listing
-without replacing or entering the Room ledger.
+without replacing or entering the Room ledger. Its writer lock is recoverable
+when the owning process is no longer alive; a live writer remains exclusive.
 
 The project root remains the Agent working directory but contains no implicit
 Mesh marker. This keeps CLI and GUI on one identity and persistence model while

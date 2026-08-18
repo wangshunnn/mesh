@@ -24,15 +24,18 @@ import {
   WorkspaceConfigConflictError,
   WorkspaceConfigLockedError,
   WorkspaceMigrationConflictError,
+  WorkspaceRegistryLockedError,
   WorkspaceStorageOverlapError,
   archiveRegisteredWorkspace,
   archiveRegisteredWorkspaceSession,
   defaultWorkspaceConfig,
+  inspectWorkspaceStorage,
   listRegisteredWorkspaceSessions,
   listWorkspaceRegistrations,
   listWorkspaceSessions,
   parseWorkspaceConfig,
   previewWorkspaceConfig,
+  recordWorkspaceSessionProjection,
   renameRegisteredWorkspace,
   renameRegisteredWorkspaceSession,
   saveWorkspaceConfig,
@@ -515,6 +518,47 @@ test("session listing tolerates and lazily repairs a corrupt derived projection 
   const repaired = listWorkspaceSessions({ root, meshHome });
   assert.equal(repaired[0]?.title, "Recover this session title");
   assert.equal(repaired[0]?.messageCount, 1);
+});
+
+test("derived session projections recover a dead writer lock without displacing a live writer", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-projection-lock-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  const location = inspectWorkspaceStorage({
+    root,
+    meshHome,
+    workspaceId: workspace.workspaceId,
+    sessionId: workspace.sessionId,
+  });
+  await workspace.close();
+  const lockPath = `${location.projectionCachePath}.lock`;
+  writeFileSync(lockPath, "2147483646\n", "utf8");
+
+  recordWorkspaceSessionProjection(location, {
+    title: "Recovered projection",
+    preview: "Recovered after a dead writer",
+    updatedAt: new Date().toISOString(),
+    headSequence: 3,
+    messageCount: 1,
+  });
+
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(
+    listRegisteredWorkspaceSessions({ workspaceId: workspace.workspaceId, meshHome })[0]?.title,
+    "Recovered projection",
+  );
+
+  writeFileSync(lockPath, `${String(process.pid)}\n`, "utf8");
+  assert.throws(
+    () => recordWorkspaceSessionProjection(location, {
+      title: "Must not replace a live writer",
+      preview: "",
+      updatedAt: new Date().toISOString(),
+      headSequence: 4,
+      messageCount: 1,
+    }),
+    WorkspaceRegistryLockedError,
+  );
+  rmSync(lockPath);
 });
 
 test("opening safely migrates legacy project-local config and Room history", async () => {
