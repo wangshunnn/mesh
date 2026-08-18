@@ -363,6 +363,21 @@ Status: **planned; keep config-v1 unchanged**.
 This increment does not add credentials, external adapter loading, Agent-list
 mutation, or a new config version without explicit migration fixtures.
 
+#### Deferred increment — Background multi-session execution
+
+Status: **proposed and gated; not implemented**.
+
+The design and phase gates are recorded in
+[`background-sessions.md`](background-sessions.md). The first deliverable is a
+cross-process per-session runtime lease while Desktop still owns one live
+composition. A bounded multi-runtime registry, background controls, and
+write-capable project isolation follow only after ownership, fencing, lifecycle
+timeouts, resource limits, and session-scoped renderer routing are approved.
+
+This increment must preserve one canonical history per Room, independent Agent
+reaction to attention, and the diagnostic-plane boundary. It must not use SQLite
+WAL or Room idempotency as a substitute for exclusive Agent-runtime ownership.
+
 ### Phase 3B — Complete local collaboration workflows
 
 Proposed scope:

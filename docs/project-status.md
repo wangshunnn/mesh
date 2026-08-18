@@ -444,6 +444,10 @@ These are current boundaries, not regressions:
     planning, dependency graphs, scheduling, and artifact review workflows do not.
 9. **No trace lifecycle policy.** Filtering, export, retention, pruning, and
     performance telemetry are not implemented.
+10. **One live Desktop session.** Catalog sessions are isolated but cold; the
+    Desktop host runs only the selected composition. Safe background execution is
+    proposed in [`background-sessions.md`](background-sessions.md) and gated on
+    runtime ownership, project mutation isolation, and resource policy.
 
 ## Next recommended development
 

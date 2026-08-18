@@ -219,6 +219,12 @@ adapter kinds until a public compatibility and security model is approved.
 The GUI is therefore one client of the collaboration core. Closing it does not
 define or erase the room protocol.
 
+Desktop currently owns exactly one live session composition. Background
+multi-session execution is a proposed product capability, not an implicit
+consequence of the session catalog. Its runtime lease, fencing, project mutation
+isolation, resource policy, and delivery gates are recorded in
+[`background-sessions.md`](background-sessions.md).
+
 ## Agent adapters
 
 All adapters implement `@ai-mesh/agent` session semantics. Phase 1 includes:
