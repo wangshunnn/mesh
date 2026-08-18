@@ -32,6 +32,7 @@ export {
   type WorkspaceConfigInput,
 } from "./config.js";
 export {
+  archiveRegisteredWorkspace,
   archiveRegisteredWorkspaceSession,
   createWorkspaceSessionId,
   inspectWorkspaceStorage,
@@ -41,6 +42,8 @@ export {
   prepareWorkspaceStorage,
   recordWorkspaceSessionProjection,
   registerWorkspace,
+  renameRegisteredWorkspace,
+  renameRegisteredWorkspaceSession,
   resolveMeshHome,
   resolveWorkspaceRoot,
   workspaceRegistryVersion,

@@ -1,9 +1,9 @@
 # Mesh implementation roadmap
 
-Last updated: **2026-08-17**
+Last updated: **2026-08-18**
 
-Latest verified increment: **Tailwind/Radix/Lucide desktop renderer foundation
-at `79f53d9`**
+Latest verified increment: **DSH-aligned desktop sidebar actions in the current
+working tree on 2026-08-18**
 
 Current position: **Phase 2A verified; Phase 3A navigation and renderer foundation are verified, and Agent onboarding diagnostics are next**
 
@@ -245,10 +245,14 @@ Status: **verified in the working tree based on `911c4fe` on 2026-08-17**.
   from repeated New Session intents
 - [x] Archive redundant historical blanks on Desktop startup, preserving the
   current or newest blank and every underlying Room database
-- [x] Allow only inactive empty sessions to leave the catalog through recoverable
-  archival while preserving their local Room data
-- [x] Match DSH's session-row affordance with a hover ellipsis and non-destructive
-  “归档会话” menu instead of a direct trash icon
+- [x] Allow nonblank current or historical sessions to leave the catalog through
+  recoverable archival, switching the live composition before archiving the current
+  session and preserving all local Room data
+- [x] Match DSH's session-row affordance with a hover ellipsis on the highlighted
+  row and local “重命名” / non-destructive “归档会话” actions
+- [x] Add project-row hover actions for durable local rename and recoverable
+  registration removal, with explicit confirmation that project and Room data stay
+  intact and reopening the same directory restores the registration
 - [x] Use session-level conversation/trajectory/config tabs with an understated
   underline active state and compact conversation navigation
 - [x] Align the renderer with Codex's system font stack, 14/12/11 px type scale,
@@ -262,7 +266,9 @@ Status: **verified in the working tree based on `911c4fe` on 2026-08-17**.
 - [x] Extend Electron smoke and 1440×900 / 1040×680 visual QA for the new shell
 
 This increment does not introduce provider/model schema changes, Agent-list
-mutation, multi-Room/thread navigation, or a central speaker scheduler.
+mutation, session branching, multi-Room/thread navigation, or a central speaker
+scheduler. Branching remains out of scope until the framework has an approved,
+storage-independent snapshot/import/lineage contract.
 
 #### Follow-up increment — Desktop renderer foundation
 

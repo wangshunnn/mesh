@@ -8,6 +8,7 @@ import {
   MeshWorkspace,
   WorkspaceConfigConflictError,
   listRegisteredWorkspaceSessions,
+  listWorkspaceRegistrations,
   saveWorkspaceConfig,
 } from "@ai-mesh/workspace";
 
@@ -164,7 +165,7 @@ test("desktop host archives redundant historical blanks on startup", async () =>
   await host.close();
 });
 
-test("desktop host only archives inactive empty sessions and keeps their local data", async () => {
+test("desktop host archives active sessions through a safe replacement and keeps their local data", async () => {
   const { root, meshHome } = hostFixture("mesh-desktop-host-archive-session-");
   const host = DesktopWorkspaceHost.open(root, { meshHome });
   const first = await host.run((workspace) => {
@@ -174,27 +175,78 @@ test("desktop host only archives inactive empty sessions and keeps their local d
   const created = await host.createSession({ workspaceId: first.workspaceId });
   const blankSessionId = created.catalog.activeSessionId;
 
-  await assert.rejects(
-    host.archiveSession({ workspaceId: first.workspaceId, sessionId: blankSessionId }),
-    /当前会话不能删除/,
-  );
-  await assert.rejects(
-    host.archiveSession(first),
-    /仅支持删除没有消息/,
-  );
-
-  await host.selectSession(first);
-  const catalog = await host.archiveSession({
+  const afterBlank = await host.archiveSession({
     workspaceId: first.workspaceId,
     sessionId: blankSessionId,
   });
-  assert.equal(catalog.workspaces[0]?.sessions.some(({ id }) => id === blankSessionId), false);
-  const coldSession = listRegisteredWorkspaceSessions({
+  assert.equal(afterBlank.catalog.activeSessionId, first.sessionId);
+  assert.equal(afterBlank.catalog.workspaces[0]?.sessions.some(({ id }) => id === blankSessionId), false);
+
+  const afterHistory = await host.archiveSession(first);
+  assert.notEqual(afterHistory.catalog.activeSessionId, first.sessionId);
+  assert.equal(afterHistory.snapshot.messages.length, 0);
+  assert.equal(afterHistory.catalog.workspaces[0]?.sessions.some(({ id }) => id === first.sessionId), false);
+  const coldSessions = listRegisteredWorkspaceSessions({
     workspaceId: first.workspaceId,
     meshHome,
-  }).find(({ id }) => id === blankSessionId);
-  assert.equal(coldSession?.archived, true);
-  assert.equal(coldSession?.status, "ok");
+  });
+  assert.equal(coldSessions.find(({ id }) => id === blankSessionId)?.archived, true);
+  assert.equal(coldSessions.find(({ id }) => id === first.sessionId)?.archived, true);
+  await host.close();
+});
+
+test("desktop host renames sessions, then removes and restores workspace registrations", async () => {
+  const { root, meshHome } = hostFixture("mesh-desktop-host-sidebar-actions-");
+  const secondRoot = join(root, "..", "sidebar-actions-second");
+  mkdirSync(secondRoot);
+  const host = DesktopWorkspaceHost.open(root, { meshHome });
+  const source = await host.run((workspace) => {
+    workspace.postText("Pinned history", { idempotencyKey: "pinned-history" });
+    return { workspaceId: workspace.workspaceId, sessionId: workspace.sessionId };
+  });
+
+  const renamedCatalog = await host.renameSession({ ...source, title: "Pinned title" });
+  assert.equal(renamedCatalog.workspaces[0]?.sessions[0]?.title, "Pinned title");
+  assert.deepEqual(await host.run((workspace) => workspace.snapshot().messages.map(({ text }) => text)), ["Pinned history"]);
+
+  const opened = await host.openWorkspace({ root: secondRoot });
+  const secondWorkspaceId = opened.catalog.activeWorkspaceId;
+  const renamedWorkspace = await host.renameWorkspace({
+    workspaceId: secondWorkspaceId,
+    name: "Second workspace",
+  });
+  assert.equal(renamedWorkspace.workspaces[0]?.name, "Second workspace");
+
+  const removed = await host.removeWorkspace({ workspaceId: secondWorkspaceId });
+  assert.equal(removed.catalog.activeWorkspaceId, source.workspaceId);
+  assert.equal(removed.catalog.workspaces.some(({ id }) => id === secondWorkspaceId), false);
+  assert.equal(listWorkspaceRegistrations({ meshHome }).length, 1);
+  assert.equal(listWorkspaceRegistrations({ meshHome, includeArchived: true }).length, 2);
+
+  const restored = await host.openWorkspace({ root: secondRoot });
+  assert.equal(restored.catalog.activeWorkspaceId, secondWorkspaceId);
+  assert.equal(restored.catalog.workspaces.find(({ id }) => id === secondWorkspaceId)?.name, "Second workspace");
+  await host.close();
+});
+
+test("desktop host removes the sole active registration while keeping its live Room recoverable", async () => {
+  const { root, meshHome } = hostFixture("mesh-desktop-host-remove-only-workspace-");
+  const host = DesktopWorkspaceHost.open(root, { meshHome });
+  const current = await host.run((workspace) => {
+    workspace.postText("Still live after removal", { idempotencyKey: "live-after-removal" });
+    return { workspaceId: workspace.workspaceId, sessionId: workspace.sessionId };
+  });
+
+  const removed = await host.removeWorkspace({ workspaceId: current.workspaceId });
+  assert.equal(removed.catalog.workspaces.length, 0);
+  assert.equal(removed.catalog.activeWorkspaceId, current.workspaceId);
+  assert.deepEqual(removed.snapshot.messages.map(({ text }) => text), ["Still live after removal"]);
+  assert.equal(listWorkspaceRegistrations({ meshHome }).length, 0);
+
+  const restored = await host.openWorkspace({ root });
+  assert.equal(restored.catalog.workspaces.length, 1);
+  assert.equal(restored.catalog.activeWorkspaceId, current.workspaceId);
+  assert.equal(restored.catalog.activeSessionId, current.sessionId);
   await host.close();
 });
 

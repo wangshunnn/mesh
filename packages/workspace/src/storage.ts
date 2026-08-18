@@ -18,7 +18,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export const workspaceRegistryVersion = 1;
+export const workspaceRegistryVersion = 2;
 export const workspaceSessionHeaderVersion = 1;
 export const workspaceSessionProjectionCacheVersion = 1;
 
@@ -28,6 +28,8 @@ export interface WorkspaceRegistration {
   readonly name: string;
   /** Newest-created sessions first. Opening an existing session does not reorder it. */
   readonly sessionIds: readonly string[];
+  /** Explicit local display titles keyed by owned session id. */
+  readonly sessionTitles: Readonly<Record<string, string>>;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lastOpenedAt: string;
@@ -114,6 +116,7 @@ export interface WorkspaceStorageLocation {
 interface WorkspaceRegistryDocument {
   readonly version: typeof workspaceRegistryVersion;
   readonly workspaceIds: readonly string[];
+  readonly archivedWorkspaceIds: readonly string[];
   readonly archivedSessionIds: readonly string[];
   readonly workspaces: readonly WorkspaceRegistration[];
 }
@@ -251,9 +254,12 @@ function workspaceProjectKeyFromCanonicalRoot(canonical: string): string {
 
 /** Read the durable workspace list without creating MESH_HOME. */
 export function listWorkspaceRegistrations(
-  options: { readonly meshHome?: string } = {},
+  options: { readonly meshHome?: string; readonly includeArchived?: boolean } = {},
 ): readonly WorkspaceRegistration[] {
-  return orderedWorkspaces(readRegistry(resolveMeshHome(options.meshHome)));
+  const registry = readRegistry(resolveMeshHome(options.meshHome));
+  const archived = new Set(registry.archivedWorkspaceIds);
+  return Object.freeze(orderedWorkspaces(registry).filter((workspace) =>
+    options.includeArchived === true || !archived.has(workspace.id)));
 }
 
 /** List one project's sessions from its registry account and cold projection cache. */
@@ -314,6 +320,101 @@ export function archiveRegisteredWorkspaceSession(options: RegisteredWorkspaceSe
   }
 }
 
+/** Hide one workspace registration without deleting its project directory or session data. */
+export function archiveRegisteredWorkspace(options: RegisteredWorkspaceInput): void {
+  assertWorkspaceId(options.workspaceId);
+  const meshHome = resolveMeshHome(options.meshHome);
+  const registryPath = join(meshHome, "storages", "workspace.json");
+  const lockPath = `${registryPath}.lock`;
+  const lockDescriptor = acquireLock(lockPath, WorkspaceRegistryLockedError);
+  try {
+    const registry = readRegistry(meshHome);
+    if (!registry.workspaces.some((workspace) => workspace.id === options.workspaceId)) {
+      throw new WorkspaceRegistrationConflictError(
+        `Workspace ${options.workspaceId} is not registered.`,
+      );
+    }
+    if (registry.archivedWorkspaceIds.includes(options.workspaceId)) return;
+    writeRegistry(meshHome, {
+      ...registry,
+      archivedWorkspaceIds: Object.freeze([...registry.archivedWorkspaceIds, options.workspaceId]),
+    });
+  } finally {
+    releaseLock(lockDescriptor, lockPath);
+  }
+}
+
+/** Change one workspace's local display name without moving its project directory. */
+export function renameRegisteredWorkspace(
+  options: RegisteredWorkspaceInput & { readonly name: string },
+): WorkspaceRegistration {
+  assertWorkspaceId(options.workspaceId);
+  const name = normalizeDisplayTitle(options.name, "Workspace name");
+  const meshHome = resolveMeshHome(options.meshHome);
+  const registryPath = join(meshHome, "storages", "workspace.json");
+  const lockPath = `${registryPath}.lock`;
+  const lockDescriptor = acquireLock(lockPath, WorkspaceRegistryLockedError);
+  try {
+    const registry = readRegistry(meshHome);
+    const workspace = registry.workspaces.find((candidate) => candidate.id === options.workspaceId);
+    if (workspace === undefined) {
+      throw new WorkspaceRegistrationConflictError(
+        `Workspace ${options.workspaceId} is not registered.`,
+      );
+    }
+    const conflict = registry.workspaces.find((candidate) =>
+      candidate.id !== workspace.id && candidate.name === name && !registry.archivedWorkspaceIds.includes(candidate.id));
+    if (conflict !== undefined) {
+      throw new WorkspaceRegistrationConflictError(`Another workspace is already named ${name}.`);
+    }
+    if (workspace.name === name) return workspace;
+    const next = Object.freeze({ ...workspace, name, updatedAt: new Date().toISOString() });
+    writeRegistry(meshHome, {
+      ...registry,
+      workspaces: Object.freeze(registry.workspaces.map((candidate) =>
+        candidate.id === next.id ? next : candidate)),
+    });
+    return next;
+  } finally {
+    releaseLock(lockDescriptor, lockPath);
+  }
+}
+
+/** Pin one session's display title outside the canonical Room ledger. */
+export function renameRegisteredWorkspaceSession(
+  options: RegisteredWorkspaceSessionInput & { readonly title: string },
+): void {
+  assertWorkspaceId(options.workspaceId);
+  assertSessionId(options.sessionId);
+  const title = normalizeDisplayTitle(options.title, "Session title");
+  const meshHome = resolveMeshHome(options.meshHome);
+  const registryPath = join(meshHome, "storages", "workspace.json");
+  const lockPath = `${registryPath}.lock`;
+  const lockDescriptor = acquireLock(lockPath, WorkspaceRegistryLockedError);
+  try {
+    const registry = readRegistry(meshHome);
+    const workspace = registry.workspaces.find((candidate) => candidate.id === options.workspaceId);
+    if (workspace === undefined || !workspace.sessionIds.includes(options.sessionId)) {
+      throw new WorkspaceRegistrationConflictError(
+        `Session ${options.sessionId} does not belong to workspace ${options.workspaceId}.`,
+      );
+    }
+    if (workspace.sessionTitles[options.sessionId] === title) return;
+    const next = Object.freeze({
+      ...workspace,
+      sessionTitles: Object.freeze({ ...workspace.sessionTitles, [options.sessionId]: title }),
+      updatedAt: new Date().toISOString(),
+    });
+    writeRegistry(meshHome, {
+      ...registry,
+      workspaces: Object.freeze(registry.workspaces.map((candidate) =>
+        candidate.id === next.id ? next : candidate)),
+    });
+  } finally {
+    releaseLock(lockDescriptor, lockPath);
+  }
+}
+
 function registeredWorkspaceSessions(
   workspace: WorkspaceRegistration,
   registry: WorkspaceRegistryDocument,
@@ -325,12 +426,12 @@ function registeredWorkspaceSessions(
     const projection = cache.sessions[sessionId];
     const archived = registry.archivedSessionIds.includes(sessionId);
     if (!existsSync(location.headerPath)) {
-      return sessionSummary(location, workspace.createdAt, projection, archived, "missing", "Session header is missing.");
+      return sessionSummary(location, workspace.createdAt, projection, archived, "missing", "Session header is missing.", workspace.sessionTitles[sessionId]);
     }
     try {
       const header = readSessionHeader(location.headerPath);
       assertHeaderBinding(header, location);
-      return sessionSummary(location, header.createdAt, projection, archived, "ok");
+      return sessionSummary(location, header.createdAt, projection, archived, "ok", undefined, workspace.sessionTitles[sessionId]);
     } catch (error) {
       return sessionSummary(
         location,
@@ -339,6 +440,7 @@ function registeredWorkspaceSessions(
         archived,
         "corrupt",
         errorMessage(error),
+        workspace.sessionTitles[sessionId],
       );
     }
   }));
@@ -422,6 +524,7 @@ export function registerWorkspace(options: WorkspaceStorageInput): WorkspaceRegi
       root: inspected.root,
       name: existing?.name ?? (basename(inspected.root) || inspected.root),
       sessionIds: existing?.sessionIds ?? Object.freeze([]),
+      sessionTitles: existing?.sessionTitles ?? Object.freeze({}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastOpenedAt: now,
@@ -437,6 +540,8 @@ export function registerWorkspace(options: WorkspaceStorageInput): WorkspaceRegi
     writeRegistry(inspected.meshHome, {
       version: workspaceRegistryVersion,
       workspaceIds,
+      archivedWorkspaceIds: Object.freeze(registry.archivedWorkspaceIds.filter((id) =>
+        id !== registration.id)),
       archivedSessionIds: registry.archivedSessionIds,
       workspaces,
     });
@@ -710,12 +815,13 @@ function sessionSummary(
   archived: boolean,
   status: WorkspaceSessionStatus,
   detail?: string,
+  titleOverride?: string,
 ): WorkspaceSessionSummary {
   return Object.freeze({
     id: location.sessionId,
     workspaceId: location.workspaceId,
     status,
-    title: projection?.title ?? "New Session",
+    title: titleOverride ?? projection?.title ?? "New Session",
     preview: projection?.preview ?? "",
     createdAt,
     updatedAt: projection?.updatedAt ?? createdAt,
@@ -748,20 +854,30 @@ function parseRegistry(serialized: string, path: string): WorkspaceRegistryDocum
     }
     throw error;
   }
-  return validateRegistry(parsed, path);
+  return validateRegistry(
+    isRecord(parsed) && parsed.version === 1 ? upgradeWorkspaceRegistryV1(parsed, path) : parsed,
+    path,
+  );
 }
 
 function validateRegistry(value: unknown, path: string): WorkspaceRegistryDocument {
   if (!isRecord(value) || value.version !== workspaceRegistryVersion) {
-    throw new Error(`Mesh workspace registry ${path} must use version 1.`);
+    throw new Error(`Mesh workspace registry ${path} must use version ${String(workspaceRegistryVersion)}.`);
   }
   assertKnownKeys(
     value,
-    ["version", "workspaceIds", "archivedSessionIds", "workspaces"],
+    ["version", "workspaceIds", "archivedWorkspaceIds", "archivedSessionIds", "workspaces"],
     `Mesh workspace registry ${path}`,
   );
-  if (!Array.isArray(value.workspaceIds) || !Array.isArray(value.archivedSessionIds) || !Array.isArray(value.workspaces)) {
-    throw new Error(`Mesh workspace registry ${path} requires workspaceIds, archivedSessionIds, and workspaces arrays.`);
+  if (
+    !Array.isArray(value.workspaceIds) ||
+    !Array.isArray(value.archivedWorkspaceIds) ||
+    !Array.isArray(value.archivedSessionIds) ||
+    !Array.isArray(value.workspaces)
+  ) {
+    throw new Error(
+      `Mesh workspace registry ${path} requires workspaceIds, archivedWorkspaceIds, archivedSessionIds, and workspaces arrays.`,
+    );
   }
   const workspaceIds = value.workspaceIds.map((entry) => {
     if (typeof entry !== "string") throw new Error(`Mesh workspace registry ${path} has an invalid workspace id.`);
@@ -773,6 +889,11 @@ function validateRegistry(value: unknown, path: string): WorkspaceRegistryDocume
     assertSessionId(entry);
     return entry;
   });
+  const archivedWorkspaceIds = value.archivedWorkspaceIds.map((entry) => {
+    if (typeof entry !== "string") throw new Error(`Mesh workspace registry ${path} has an invalid archived workspace id.`);
+    assertWorkspaceId(entry);
+    return entry;
+  });
   const roots = new Set<string>();
   const ids = new Set<string>();
   const ownedSessions = new Set<string>();
@@ -780,7 +901,7 @@ function validateRegistry(value: unknown, path: string): WorkspaceRegistryDocume
     if (!isRecord(entry)) throw new Error(`Workspace registration ${String(index)} must be an object.`);
     assertKnownKeys(
       entry,
-      ["id", "root", "name", "sessionIds", "createdAt", "updatedAt", "lastOpenedAt"],
+      ["id", "root", "name", "sessionIds", "sessionTitles", "createdAt", "updatedAt", "lastOpenedAt"],
       `Workspace registration ${String(index)}`,
     );
     const id = recordString(entry, "id", `Workspace registration ${String(index)}`);
@@ -796,13 +917,40 @@ function validateRegistry(value: unknown, path: string): WorkspaceRegistryDocume
       ownedSessions.add(sessionId);
       return sessionId;
     });
+    if (!isRecord(entry.sessionTitles)) {
+      throw new Error(`Workspace registration ${String(index)} requires sessionTitles.`);
+    }
+    const sessionTitles: Record<string, string> = {};
+    for (const [sessionId, titleValue] of Object.entries(entry.sessionTitles)) {
+      assertSessionId(sessionId);
+      if (!sessionIds.includes(sessionId)) {
+        throw new Error(`Workspace registration ${String(index)} titles an unowned session.`);
+      }
+      if (typeof titleValue !== "string") {
+        throw new Error(`Workspace registration ${String(index)} has an invalid session title.`);
+      }
+      const title = normalizeDisplayTitle(titleValue, "Session title");
+      if (title !== titleValue) {
+        throw new Error(`Workspace registration ${String(index)} has a non-normalized session title.`);
+      }
+      sessionTitles[sessionId] = title;
+    }
     const createdAt = recordDate(entry, "createdAt", `Workspace registration ${String(index)}`);
     const updatedAt = recordDate(entry, "updatedAt", `Workspace registration ${String(index)}`);
     const lastOpenedAt = recordDate(entry, "lastOpenedAt", `Workspace registration ${String(index)}`);
     if (ids.has(id) || roots.has(root)) throw new Error(`Workspace registration ${String(index)} duplicates an id or root.`);
     ids.add(id);
     roots.add(root);
-    return Object.freeze({ id, root, name, sessionIds: Object.freeze(sessionIds), createdAt, updatedAt, lastOpenedAt });
+    return Object.freeze({
+      id,
+      root,
+      name,
+      sessionIds: Object.freeze(sessionIds),
+      sessionTitles: Object.freeze(sessionTitles),
+      createdAt,
+      updatedAt,
+      lastOpenedAt,
+    });
   });
   if (
     new Set(workspaceIds).size !== workspaceIds.length ||
@@ -814,12 +962,47 @@ function validateRegistry(value: unknown, path: string): WorkspaceRegistryDocume
   if (archivedSessionIds.some((id) => !ownedSessions.has(id))) {
     throw new Error(`Mesh workspace registry ${path} archives an unowned session.`);
   }
+  if (
+    new Set(archivedWorkspaceIds).size !== archivedWorkspaceIds.length ||
+    archivedWorkspaceIds.some((id) => !ids.has(id))
+  ) {
+    throw new Error(`Mesh workspace registry ${path} archives an unknown workspace.`);
+  }
   return Object.freeze({
     version: workspaceRegistryVersion,
     workspaceIds: Object.freeze(workspaceIds),
+    archivedWorkspaceIds: Object.freeze(archivedWorkspaceIds),
     archivedSessionIds: Object.freeze(archivedSessionIds),
     workspaces: Object.freeze(workspaces),
   });
+}
+
+function upgradeWorkspaceRegistryV1(
+  value: Readonly<Record<string, unknown>>,
+  path: string,
+): Readonly<Record<string, unknown>> {
+  assertKnownKeys(
+    value,
+    ["version", "workspaceIds", "archivedSessionIds", "workspaces"],
+    `Mesh workspace registry ${path}`,
+  );
+  if (!Array.isArray(value.workspaces)) {
+    throw new Error(`Mesh workspace registry ${path} requires workspaces.`);
+  }
+  return {
+    ...value,
+    version: workspaceRegistryVersion,
+    archivedWorkspaceIds: [],
+    workspaces: value.workspaces.map((entry, index) => {
+      if (!isRecord(entry)) throw new Error(`Workspace registration ${String(index)} must be an object.`);
+      assertKnownKeys(
+        entry,
+        ["id", "root", "name", "sessionIds", "createdAt", "updatedAt", "lastOpenedAt"],
+        `Workspace registration ${String(index)}`,
+      );
+      return { ...entry, sessionTitles: {} };
+    }),
+  };
 }
 
 function parseLegacyRegistry(serialized: string, path: string): LegacyWorkspaceRegistryDocument {
@@ -850,10 +1033,12 @@ function convertLegacyRegistry(legacy: LegacyWorkspaceRegistryDocument): Workspa
   return Object.freeze({
     version: workspaceRegistryVersion,
     workspaceIds: Object.freeze(legacy.workspaces.map((workspace) => workspace.id)),
+    archivedWorkspaceIds: Object.freeze([]),
     archivedSessionIds: Object.freeze([]),
     workspaces: Object.freeze(legacy.workspaces.map((workspace) => Object.freeze({
       ...workspace,
       sessionIds: Object.freeze([]),
+      sessionTitles: Object.freeze({}),
       updatedAt: workspace.lastOpenedAt,
     }))),
   });
@@ -868,6 +1053,7 @@ function emptyRegistry(): WorkspaceRegistryDocument {
   return Object.freeze({
     version: workspaceRegistryVersion,
     workspaceIds: Object.freeze([]),
+    archivedWorkspaceIds: Object.freeze([]),
     archivedSessionIds: Object.freeze([]),
     workspaces: Object.freeze([]),
   });
@@ -964,6 +1150,13 @@ function cleanupLegacyRegistry(meshHome: string): void {
   if (existsSync(legacyWorkspacesDirectory) && readdirSync(legacyWorkspacesDirectory).length === 0) {
     rmdirSync(legacyWorkspacesDirectory);
   }
+}
+
+function normalizeDisplayTitle(value: string, label: string): string {
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  if (normalized.length === 0) throw new Error(`${label} cannot be empty.`);
+  if (normalized.length > 120) throw new Error(`${label} cannot exceed 120 characters.`);
+  return normalized;
 }
 
 function acquireLock<T extends new (lockPath: string, options?: ErrorOptions) => Error>(

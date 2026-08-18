@@ -12,7 +12,10 @@ const requestChannels = Object.freeze([
   desktopChannels.openWorkspace,
   desktopChannels.createSession,
   desktopChannels.selectSession,
+  desktopChannels.renameSession,
   desktopChannels.archiveSession,
+  desktopChannels.renameWorkspace,
+  desktopChannels.removeWorkspace,
   desktopChannels.configPreview,
   desktopChannels.saveConfig,
   desktopChannels.reloadConfig,
@@ -55,8 +58,20 @@ export function registerDesktopIpc(
     (_event, input: Parameters<DesktopApi["selectSession"]>[0]) => host.selectSession(input),
   );
   ipcMain.handle(
+    desktopChannels.renameSession,
+    (_event, input: Parameters<DesktopApi["renameSession"]>[0]) => host.renameSession(input),
+  );
+  ipcMain.handle(
     desktopChannels.archiveSession,
     (_event, input: Parameters<DesktopApi["archiveSession"]>[0]) => host.archiveSession(input),
+  );
+  ipcMain.handle(
+    desktopChannels.renameWorkspace,
+    (_event, input: Parameters<DesktopApi["renameWorkspace"]>[0]) => host.renameWorkspace(input),
+  );
+  ipcMain.handle(
+    desktopChannels.removeWorkspace,
+    (_event, input: Parameters<DesktopApi["removeWorkspace"]>[0]) => host.removeWorkspace(input),
   );
   ipcMain.handle(desktopChannels.configPreview, () =>
     host.run((workspace) => workspace.configPreview()),

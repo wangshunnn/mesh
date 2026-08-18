@@ -25,6 +25,7 @@ import {
   WorkspaceConfigLockedError,
   WorkspaceMigrationConflictError,
   WorkspaceStorageOverlapError,
+  archiveRegisteredWorkspace,
   archiveRegisteredWorkspaceSession,
   defaultWorkspaceConfig,
   listRegisteredWorkspaceSessions,
@@ -32,6 +33,8 @@ import {
   listWorkspaceSessions,
   parseWorkspaceConfig,
   previewWorkspaceConfig,
+  renameRegisteredWorkspace,
+  renameRegisteredWorkspaceSession,
   saveWorkspaceConfig,
   serializeWorkspaceConfig,
   validateWorkspaceConfig,
@@ -424,6 +427,57 @@ test("archiving a registered session hides no Room data", async () => {
   assert.equal(existsSync(dataDirectory), true);
   assert.equal(existsSync(databasePath), true);
   assert.equal(listWorkspaceRegistrations({ meshHome })[0]?.sessionIds.includes(sessionId), true);
+});
+
+test("registry v2 pins names and restores archived workspaces with their Room history", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-catalog-actions-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  workspace.postText("Preserved history", { idempotencyKey: "preserved-history" });
+  const workspaceId = workspace.workspaceId;
+  const sessionId = workspace.sessionId;
+  const databasePath = workspace.databasePath;
+  const registryPath = workspace.registryPath;
+  await workspace.close();
+
+  renameRegisteredWorkspace({ workspaceId, meshHome, name: "Renamed workspace" });
+  renameRegisteredWorkspaceSession({ workspaceId, sessionId, meshHome, title: "Pinned session" });
+  assert.equal(listRegisteredWorkspaceSessions({ workspaceId, meshHome })[0]?.title, "Pinned session");
+  assert.equal(existsSync(databasePath), true);
+
+  archiveRegisteredWorkspace({ workspaceId, meshHome });
+  assert.equal(listWorkspaceRegistrations({ meshHome }).length, 0);
+  assert.equal(listWorkspaceRegistrations({ meshHome, includeArchived: true })[0]?.name, "Renamed workspace");
+  const restored = MeshWorkspace.open({ root, meshHome, sessionId });
+  assert.equal(listWorkspaceRegistrations({ meshHome })[0]?.name, "Renamed workspace");
+  assert.deepEqual(restored.snapshot().messages.map(({ text }) => text), ["Preserved history"]);
+  await restored.close();
+  assert.equal(JSON.parse(readFileSync(registryPath, "utf8")).version, 2);
+});
+
+test("registry v1 upgrades on the next catalog mutation", async () => {
+  const { root, meshHome } = workspaceFixture("mesh-workspace-registry-v1-");
+  const workspace = MeshWorkspace.open({ root, meshHome });
+  const workspaceId = workspace.workspaceId;
+  const registryPath = workspace.registryPath;
+  await workspace.close();
+  const current = JSON.parse(readFileSync(registryPath, "utf8")) as {
+    version: number;
+    archivedWorkspaceIds?: readonly string[];
+    workspaces: Array<Record<string, unknown>>;
+  } & Record<string, unknown>;
+  const legacy = {
+    ...current,
+    version: 1,
+    workspaces: current.workspaces.map(({ sessionTitles: _sessionTitles, ...registration }) => registration),
+  };
+  delete legacy.archivedWorkspaceIds;
+  writeFileSync(registryPath, `${JSON.stringify(legacy, undefined, 2)}\n`, "utf8");
+
+  assert.equal(listWorkspaceRegistrations({ meshHome })[0]?.id, workspaceId);
+  renameRegisteredWorkspace({ workspaceId, meshHome, name: "Upgraded" });
+  const written = JSON.parse(readFileSync(registryPath, "utf8")) as Record<string, unknown>;
+  assert.equal(written.version, 2);
+  assert.deepEqual(written.archivedWorkspaceIds, []);
 });
 
 test("registered session summaries remain readable when the project root is missing", async () => {

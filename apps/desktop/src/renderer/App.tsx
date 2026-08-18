@@ -26,7 +26,9 @@ import { IconButton } from "./ui/controls.js";
 function isWorkspaceTransitionBusy(busy: string | undefined): boolean {
   return busy === "open-workspace"
     || busy?.startsWith("create-session:") === true
-    || busy?.startsWith("select-session:") === true;
+    || busy?.startsWith("select-session:") === true
+    || busy?.startsWith("archive-session:") === true
+    || busy?.startsWith("remove-workspace:") === true;
 }
 
 export function App(): React.JSX.Element {
@@ -190,14 +192,17 @@ export function App(): React.JSX.Element {
     });
   };
 
-  const archiveSession = async (workspaceId: string, sessionId: string): Promise<void> => {
-    setBusy(`archive-session:${sessionId}`);
+  const mutateCatalog = async (
+    key: string,
+    operation: () => Promise<WorkspaceCatalogView>,
+  ): Promise<void> => {
+    setBusy(key);
     setError(undefined);
     try {
       if (window.mesh === undefined) {
-        throw new Error("预览模式不能删除会话，请打开 Electron 应用。");
+        throw new Error("预览模式不能修改工作区目录，请打开 Electron 应用。");
       }
-      setCatalog(await window.mesh.archiveSession({ workspaceId, sessionId }));
+      setCatalog(await operation());
     } catch (caught) {
       setError(workspaceErrorMessage(caught));
     } finally {
@@ -228,7 +233,22 @@ export function App(): React.JSX.Element {
           `select-session:${sessionId}`,
           () => window.mesh.selectSession({ workspaceId, sessionId }),
         )}
-        onArchiveSession={(workspaceId, sessionId) => void archiveSession(workspaceId, sessionId)}
+        onRenameSession={(workspaceId, sessionId, title) => void mutateCatalog(
+          `rename-session:${sessionId}`,
+          () => window.mesh.renameSession({ workspaceId, sessionId, title }),
+        )}
+        onArchiveSession={(workspaceId, sessionId) => void transitionWorkspace(
+          `archive-session:${sessionId}`,
+          () => window.mesh.archiveSession({ workspaceId, sessionId }),
+        )}
+        onRenameWorkspace={(workspaceId, name) => void mutateCatalog(
+          `rename-workspace:${workspaceId}`,
+          () => window.mesh.renameWorkspace({ workspaceId, name }),
+        )}
+        onRemoveWorkspace={(workspaceId) => void transitionWorkspace(
+          `remove-workspace:${workspaceId}`,
+          () => window.mesh.removeWorkspace({ workspaceId }),
+        )}
       />
       <section className="workspace-main" data-ui="workspace-main">
         <Header

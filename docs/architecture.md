@@ -140,8 +140,10 @@ the sandboxed renderer receives only the application projection and never reads
 configuration files, the workspace registry, or workspace paths directly.
 
 Machine-local state is owned by one shared `MESH_HOME` (default `~/.mesh`), not
-by the user's project. `storages/workspace.json` maps canonical project paths to
-stable workspace UUIDs and ordered session IDs. A workspace may own multiple
+by the user's project. Version 2 of `storages/workspace.json` maps canonical
+project paths to stable workspace UUIDs, ordered session IDs, explicit local
+session-title overrides, and recoverable workspace/session archive sets; version 1
+is upgraded on the next mutation. A workspace may own multiple
 sessions; each session owns one strict identity header, config snapshot, and
 SQLite-backed canonical Room below `sessions/<project-key>/<session-id>/`.
 The readable project key includes a path digest to prevent normalization
@@ -183,11 +185,21 @@ unarchived blank session; only when none exists does it prepend a newly created
 session ID. The active session is classified from its live Room snapshot rather
 than a possibly stale cold projection.
 
-Desktop deletion is deliberately a recoverable catalog operation, not destructive
-Room deletion. Only an inactive session with a valid header and zero projected
-messages may be archived. Its registry ownership, session directory, canonical
-ledger, configuration, and SQLite database remain intact below `MESH_HOME`; the
-browser-safe catalog filters archived sessions from normal navigation. On host
+Desktop removal is deliberately a recoverable catalog operation, not destructive
+Room deletion. Any valid nonblank session row can be archived; when it is current,
+the host first switches the immutable composition to another valid session or a
+fresh blank. Registry ownership, session directory, canonical ledger,
+configuration, and SQLite database remain intact below `MESH_HOME`; the
+browser-safe catalog filters archived sessions from normal navigation. Explicit
+renames are catalog metadata and never enter Agent prompts or canonical history.
+Session branching is deliberately not a catalog primitive: it would first require
+a storage-independent snapshot/import/lineage contract rather than copying SQLite
+and vendor resume state. Workspace removal similarly archives only its registration;
+the project and sessions remain, and opening the canonical project path restores
+the same workspace identity. When removing the current registration, the host
+switches to another available workspace when possible; if none exists, the known-
+good Room composition remains live but outside the catalog until a directory is
+opened. On host
 startup, every workspace is normalized to at most one unarchived blank session:
 the current blank wins when present, otherwise the newest cold blank wins, and
 older redundant blanks are archived through the same non-destructive operation.

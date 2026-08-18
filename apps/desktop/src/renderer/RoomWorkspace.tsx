@@ -39,6 +39,7 @@ export function Header({ snapshot, catalog, busy, invoke, view, onViewChange }: 
             <span>{snapshot.agents.length} 个 Agent</span>
           </div>
         </div>
+        <div className="topbar-drag-zone" data-ui="topbar-drag-zone" aria-hidden="true" />
         <div className="topbar-actions">
           <span className="local-pill"><i /> 本地</span>
           <Button
@@ -211,7 +212,7 @@ export function Composer({ snapshot, busy, invoke }: RuntimeProps): React.JSX.El
               { value: "team", label: "@全体成员" },
               ...snapshot.agents.map((agent) => ({ value: agent.id, label: `@${agent.handle}` })),
             ]}
-            className="min-w-[142px]"
+            className="min-w-35.5"
           />
         </label>
         <span className="composer-hint">Enter 发送 · Shift + Enter 换行</span>
@@ -244,7 +245,7 @@ export function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.E
         />
         <IconButton
           type="submit"
-          className="square !size-[34px] !bg-foreground !text-white hover:!bg-[#343434]"
+          className="square size-8.5! bg-foreground! text-white! hover:bg-[#343434]!"
           label="创建任务"
           disabled={busy !== undefined || title.trim().length === 0}
         ><Plus className="size-4" /></IconButton>
@@ -273,7 +274,7 @@ export function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.E
                     taskId: task.id,
                     status,
                   }))}
-                  className="max-w-[120px]"
+                  className="max-w-30"
                 />
                 {task.ownerId === undefined ? (
                   <SelectControl
@@ -292,7 +293,7 @@ export function TaskPanel({ snapshot, busy, invoke }: RuntimeProps): React.JSX.E
                         }));
                       }
                     }}
-                    className="max-w-[120px]"
+                    className="max-w-30"
                   />
                 ) : <span className="owner-chip">{participantLabel(snapshot, task.ownerId)}</span>}
               </div>

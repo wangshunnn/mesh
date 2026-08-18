@@ -188,10 +188,22 @@ export interface MeshClient {
     readonly workspaceId: string;
     readonly sessionId: string;
   }): Promise<WorkspaceSelectionView>;
+  renameSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+    readonly title: string;
+  }): Promise<WorkspaceCatalogView>;
   archiveSession(input: {
     readonly workspaceId: string;
     readonly sessionId: string;
+  }): Promise<WorkspaceSelectionView>;
+  renameWorkspace(input: {
+    readonly workspaceId: string;
+    readonly name: string;
   }): Promise<WorkspaceCatalogView>;
+  removeWorkspace(input: {
+    readonly workspaceId: string;
+  }): Promise<WorkspaceSelectionView>;
   configPreview(): Promise<WorkspaceConfigPreview>;
   saveConfig(input: WorkspaceConfigSaveInput): Promise<WorkspaceConfigWriteResult>;
   reloadConfig(): Promise<WorkspaceConfigPreview>;

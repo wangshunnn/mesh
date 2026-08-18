@@ -30,10 +30,12 @@ The home separates a lightweight workspace catalog from private session data:
         mesh.db
 ```
 
-`storages/workspace.json` maps a stable workspace UUID to the canonical real
-project path, display name, timestamps, and an ordered list of opaque session
-IDs. New sessions are prepended without reordering older sessions when they are
-opened. The directory grouping key remains recognizable from the canonical path
+Version 2 of `storages/workspace.json` maps a stable workspace UUID to the
+canonical real project path, display name, timestamps, an ordered list of opaque
+session IDs, explicit local session-title overrides, and recoverable workspace /
+session archive sets. Version 1 is read compatibly and upgraded by the next
+catalog mutation. New sessions are prepended without reordering older sessions
+when they are opened. The directory grouping key remains recognizable from the canonical path
 and ends in a truncated SHA-256 digest, so paths that normalize to the same slug
 cannot collide. Two projects with the same basename therefore remain distinct.
 
@@ -47,9 +49,11 @@ and durable participant cursors.
 `session-projection-cache.json` is a derived, fail-soft sidebar index containing
 only title, preview, timestamps, head sequence, and message count. It lets clients
 list sessions without opening every database. The first human message supplies a
-session title, and the latest message supplies its preview; a missing or corrupt
-cache falls back to safe defaults and is repaired by a later checkpoint. The
-Room database remains canonical.
+session title, and the latest message supplies its preview; an explicit rename
+overrides only the displayed title from the durable workspace catalog. A missing
+or corrupt cache falls back to safe defaults and is repaired by a later checkpoint.
+Neither the derived title nor its explicit override enters Agent prompts. The Room
+database remains canonical.
 
 The project directory is only a working-directory reference. Opening it does
 not create project-local metadata or require a Git ignore rule.

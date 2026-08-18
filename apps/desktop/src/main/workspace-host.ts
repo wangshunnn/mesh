@@ -10,10 +10,14 @@ import type {
 } from "@ai-mesh/application";
 import {
   MeshWorkspace,
+  archiveRegisteredWorkspace,
   archiveRegisteredWorkspaceSession,
   listRegisteredWorkspaceSessions,
   listWorkspaceRegistrations,
   previewWorkspaceConfig,
+  registerWorkspace,
+  renameRegisteredWorkspace,
+  renameRegisteredWorkspaceSession,
   resolveWorkspaceRoot,
   saveWorkspaceConfig,
 } from "@ai-mesh/workspace";
@@ -76,7 +80,20 @@ export class DesktopWorkspaceHost {
     return this.#enqueue(async () => {
       const root = resolveWorkspaceRoot(input.root);
       const active = this.#requireWorkspace();
-      if (active.root === root) return this.#selection();
+      if (active.root === root) {
+        if (!listWorkspaceRegistrations({ meshHome: this.meshHome }).some(({ id }) => id === active.workspaceId)) {
+          registerWorkspace({
+            root,
+            meshHome: this.meshHome,
+            workspaceId: active.workspaceId,
+            sessionId: active.sessionId,
+          });
+          const selection = this.#selection();
+          this.#publishCatalog(selection.catalog);
+          return selection;
+        }
+        return this.#selection();
+      }
       return this.#replaceWorkspace(active, { root, meshHome: this.meshHome });
     });
   }
@@ -147,18 +164,38 @@ export class DesktopWorkspaceHost {
     });
   }
 
-  archiveSession(input: {
+  renameSession(input: {
     readonly workspaceId: string;
     readonly sessionId: string;
+    readonly title: string;
   }): Promise<WorkspaceCatalogView> {
     if (this.#closing) {
       return Promise.reject(new Error("Desktop workspace is closing."));
     }
     return this.#enqueue(() => {
-      const active = this.#requireWorkspace();
-      if (active.workspaceId === input.workspaceId && active.sessionId === input.sessionId) {
-        throw new Error("当前会话不能删除，请先切换到其他会话。");
+      const session = listRegisteredWorkspaceSessions({
+        workspaceId: input.workspaceId,
+        meshHome: this.meshHome,
+      }).find((candidate) => candidate.id === input.sessionId && !candidate.archived);
+      if (session === undefined || session.status !== "ok") {
+        throw new Error(`Unknown or unavailable Mesh session ${input.sessionId}.`);
       }
+      renameRegisteredWorkspaceSession({ ...input, meshHome: this.meshHome });
+      const catalog = this.#catalog();
+      this.#publishCatalog(catalog);
+      return catalog;
+    });
+  }
+
+  archiveSession(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+  }): Promise<WorkspaceSelectionView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(async () => {
+      const active = this.#requireWorkspace();
       const session = listRegisteredWorkspaceSessions({
         workspaceId: input.workspaceId,
         meshHome: this.meshHome,
@@ -166,17 +203,80 @@ export class DesktopWorkspaceHost {
       if (session === undefined || session.archived) {
         throw new Error(`Unknown Mesh session ${input.sessionId} for workspace ${input.workspaceId}.`);
       }
-      if (session.status !== "ok" || session.messageCount !== 0) {
-        throw new Error("目前仅支持删除没有消息的历史空会话。");
+      if (session.status !== "ok") {
+        throw new Error("不可用的会话无法归档。");
+      }
+      if (active.workspaceId === input.workspaceId && active.sessionId === input.sessionId) {
+        const registration = this.#registration(input.workspaceId);
+        const replacement = listRegisteredWorkspaceSessions({
+          workspaceId: input.workspaceId,
+          meshHome: this.meshHome,
+        }).find((candidate) =>
+          candidate.id !== input.sessionId && !candidate.archived && candidate.status === "ok");
+        await this.#replaceWorkspace(active, {
+          root: registration.root,
+          meshHome: this.meshHome,
+          ...(replacement === undefined ? { createSession: true } : { sessionId: replacement.id }),
+        });
       }
       archiveRegisteredWorkspaceSession({
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,
         meshHome: this.meshHome,
       });
+      const selection = this.#selection();
+      this.#publishCatalog(selection.catalog);
+      return selection;
+    });
+  }
+
+  renameWorkspace(input: {
+    readonly workspaceId: string;
+    readonly name: string;
+  }): Promise<WorkspaceCatalogView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(() => {
+      renameRegisteredWorkspace({ ...input, meshHome: this.meshHome });
       const catalog = this.#catalog();
       this.#publishCatalog(catalog);
       return catalog;
+    });
+  }
+
+  removeWorkspace(input: {
+    readonly workspaceId: string;
+  }): Promise<WorkspaceSelectionView> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(async () => {
+      const active = this.#requireWorkspace();
+      this.#registration(input.workspaceId);
+      if (active.workspaceId === input.workspaceId) {
+        const fallback = listWorkspaceRegistrations({ meshHome: this.meshHome })
+          .filter((workspace) => workspace.id !== input.workspaceId && existsSync(workspace.root))
+          .map((workspace) => ({
+            workspace,
+            session: listRegisteredWorkspaceSessions({
+              workspaceId: workspace.id,
+              meshHome: this.meshHome,
+            }).find((session) => !session.archived && session.status === "ok"),
+          }))
+          .find(({ session }) => session !== undefined);
+        if (fallback?.session !== undefined) {
+          await this.#replaceWorkspace(active, {
+            root: fallback.workspace.root,
+            meshHome: this.meshHome,
+            sessionId: fallback.session.id,
+          });
+        }
+      }
+      archiveRegisteredWorkspace({ workspaceId: input.workspaceId, meshHome: this.meshHome });
+      const selection = this.#selection();
+      this.#publishCatalog(selection.catalog);
+      return selection;
     });
   }
 

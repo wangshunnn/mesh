@@ -18,8 +18,14 @@ const api: DesktopApi = Object.freeze({
     ipcRenderer.invoke(desktopChannels.createSession, input) as Promise<Awaited<ReturnType<DesktopApi["createSession"]>>>,
   selectSession: (input: Parameters<DesktopApi["selectSession"]>[0]) =>
     ipcRenderer.invoke(desktopChannels.selectSession, input) as Promise<Awaited<ReturnType<DesktopApi["selectSession"]>>>,
+  renameSession: (input: Parameters<DesktopApi["renameSession"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.renameSession, input) as Promise<Awaited<ReturnType<DesktopApi["renameSession"]>>>,
   archiveSession: (input: Parameters<DesktopApi["archiveSession"]>[0]) =>
     ipcRenderer.invoke(desktopChannels.archiveSession, input) as Promise<Awaited<ReturnType<DesktopApi["archiveSession"]>>>,
+  renameWorkspace: (input: Parameters<DesktopApi["renameWorkspace"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.renameWorkspace, input) as Promise<Awaited<ReturnType<DesktopApi["renameWorkspace"]>>>,
+  removeWorkspace: (input: Parameters<DesktopApi["removeWorkspace"]>[0]) =>
+    ipcRenderer.invoke(desktopChannels.removeWorkspace, input) as Promise<Awaited<ReturnType<DesktopApi["removeWorkspace"]>>>,
   configPreview: () =>
     ipcRenderer.invoke(desktopChannels.configPreview) as Promise<Awaited<ReturnType<DesktopApi["configPreview"]>>>,
   saveConfig: (input: Parameters<DesktopApi["saveConfig"]>[0]) =>

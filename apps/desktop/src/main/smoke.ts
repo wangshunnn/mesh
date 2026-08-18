@@ -44,6 +44,7 @@ async function runSmoke(): Promise<void> {
 
     window = new BrowserWindow({
       show: false,
+      titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
       webPreferences: {
         preload: join(import.meta.dirname, "../preload-bundle/index.cjs"),
         contextIsolation: true,
@@ -274,30 +275,37 @@ async function runSmoke(): Promise<void> {
         );
         const returnedCatalog = await window.mesh.workspaceCatalog();
         const returnedSnapshot = await window.mesh.snapshot();
-        const archivedSessionRow = document.querySelector(
-          '[data-session-id="' + overflowSessionId + '"]'
+        const activeSessionRow = document.querySelector(
+          '[data-session-id="' + firstSessionId + '"]'
         )?.closest('.session-row');
-        const archivedSessionButton = archivedSessionRow?.querySelector('.session-actions-trigger');
-        if (!(archivedSessionButton instanceof HTMLButtonElement)) throw new Error("empty session actions trigger is missing");
-        archivedSessionButton.focus();
-        archivedSessionButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const activeSessionButton = activeSessionRow?.querySelector('.session-actions-trigger');
+        if (!(activeSessionButton instanceof HTMLButtonElement)) throw new Error("active session actions trigger is missing");
+        activeSessionButton.focus();
+        activeSessionButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') !== null, "keyboard did not open session actions menu");
+        const sessionMenuItemLabels = [...document.querySelectorAll('[data-ui="session-action-menu"] [role="menuitem"]')]
+          .map((item) => item.textContent?.trim() ?? "");
         document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') === null, "Escape did not close session actions menu");
-        const sessionMenuFocusRestored = document.activeElement === archivedSessionButton;
+        const sessionMenuFocusRestored = document.activeElement === activeSessionButton;
+        const archivedSessionRow = document.querySelector(
+          '[data-session-id="' + secondSessionId + '"]'
+        )?.closest('.session-row');
+        const archivedSessionButton = archivedSessionRow?.querySelector('.session-actions-trigger');
+        if (!(archivedSessionButton instanceof HTMLButtonElement)) throw new Error("historical session actions trigger is missing");
         archivedSessionButton.dispatchEvent(new PointerEvent("pointerdown", {
           bubbles: true,
           button: 0,
           pointerType: "mouse",
         }));
         await waitFor(() => document.querySelector('[data-ui="session-action-menu"]') !== null, "session actions menu did not open");
-        const archiveMenuItem = document.querySelector('[data-ui="session-action-menu"] [role="menuitem"]');
+        const archiveMenuItem = [...document.querySelectorAll('[data-ui="session-action-menu"] [role="menuitem"]')]
+          .find((item) => item.textContent?.trim() === "归档会话");
         if (!(archiveMenuItem instanceof HTMLElement)) throw new Error("archive session menu item is missing");
-        const sessionMenuItemLabel = archiveMenuItem.textContent?.trim() ?? "";
         archiveMenuItem.click();
         await waitFor(
-          () => document.querySelector('[data-session-id="' + overflowSessionId + '"]') === null,
-          "empty session did not leave the catalog"
+          () => document.querySelector('[data-session-id="' + secondSessionId + '"]') === null,
+          "archived session did not leave the catalog"
         );
         const archivedCatalog = await window.mesh.workspaceCatalog();
 
@@ -318,6 +326,32 @@ async function runSmoke(): Promise<void> {
           collapsedToggleRect.left + collapsedToggleRect.width / 2,
           collapsedToggleRect.top + collapsedToggleRect.height / 2
         )?.closest('.left-sidebar-toggle') === leftSidebarToggle;
+        const collapsedCreateSession = document.querySelector('.create-session-primary');
+        const collapsedSidebar = document.querySelector('[data-ui="workspace-sidebar"]');
+        const collapsedSidebarBrand = collapsedSidebar?.querySelector('.sidebar-brand');
+        const collapsedSidebarActions = collapsedSidebar?.querySelector('.sidebar-actions');
+        const topbar = document.querySelector('.topbar');
+        const topbarDragZone = document.querySelector('[data-ui="topbar-drag-zone"]');
+        if (!(collapsedCreateSession instanceof HTMLButtonElement)) throw new Error("collapsed new session action is missing");
+        if (!(collapsedSidebar instanceof HTMLElement)) throw new Error("collapsed workspace sidebar is missing");
+        if (!(collapsedSidebarBrand instanceof HTMLElement)) throw new Error("collapsed sidebar brand is missing");
+        if (!(collapsedSidebarActions instanceof HTMLElement)) throw new Error("collapsed sidebar actions are missing");
+        if (!(topbar instanceof HTMLElement)) throw new Error("topbar is missing");
+        if (!(topbarDragZone instanceof HTMLElement)) throw new Error("topbar drag zone is missing");
+        const collapsedCreateRect = collapsedCreateSession.getBoundingClientRect();
+        const collapsedCreateHitTarget = document.elementFromPoint(
+          collapsedCreateRect.left + collapsedCreateRect.width / 2,
+          collapsedCreateRect.top + collapsedCreateRect.height / 2
+        )?.closest('.create-session-primary') === collapsedCreateSession;
+        const collapsedToggleAppRegion = getComputedStyle(leftSidebarToggle).getPropertyValue('-webkit-app-region');
+        const collapsedCreateAppRegion = getComputedStyle(collapsedCreateSession).getPropertyValue('-webkit-app-region');
+        const collapsedSidebarAppRegion = getComputedStyle(collapsedSidebar).getPropertyValue('-webkit-app-region');
+        const collapsedCreateLabel = collapsedCreateSession.getAttribute('aria-label');
+        const collapsedSidebarPointerEvents = getComputedStyle(collapsedSidebar).pointerEvents;
+        const collapsedBrandPointerEvents = getComputedStyle(collapsedSidebarBrand).pointerEvents;
+        const collapsedActionsPointerEvents = getComputedStyle(collapsedSidebarActions).pointerEvents;
+        const topbarAppRegion = getComputedStyle(topbar).getPropertyValue('-webkit-app-region');
+        const topbarDragZoneAppRegion = getComputedStyle(topbarDragZone).getPropertyValue('-webkit-app-region');
         leftSidebarToggle.click();
         await waitFor(() => document.querySelector('[data-ui="workspace-sidebar"]')?.getAttribute('data-state') === 'expanded', "left sidebar did not expand");
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -371,6 +405,26 @@ async function runSmoke(): Promise<void> {
           : getComputedStyle(inactiveWorkspaceHeading).backgroundColor;
         inactiveWorkspaceToggle.click();
         await waitFor(() => inactiveWorkspaceToggle.getAttribute("aria-expanded") === "true", "inactive project did not expand");
+        const inactiveWorkspaceActions = inactiveWorkspaceGroup?.querySelector('.workspace-actions-trigger');
+        if (!(inactiveWorkspaceActions instanceof HTMLButtonElement)) throw new Error("workspace actions trigger is missing");
+        inactiveWorkspaceActions.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }));
+        await waitFor(() => document.querySelector('[data-ui="workspace-action-menu"]') !== null, "workspace actions menu did not open");
+        const workspaceMenuItemLabels = [...document.querySelectorAll('[data-ui="workspace-action-menu"] [role="menuitem"]')]
+          .map((item) => item.textContent?.trim() ?? "");
+        const removeWorkspaceItem = [...document.querySelectorAll('[data-ui="workspace-action-menu"] [role="menuitem"]')]
+          .find((item) => item.textContent?.trim() === "移除工作区");
+        if (!(removeWorkspaceItem instanceof HTMLElement)) throw new Error("remove workspace menu item is missing");
+        removeWorkspaceItem.click();
+        await waitFor(() => document.querySelector('[data-ui="remove-workspace-dialog"]') !== null, "remove workspace dialog did not open");
+        const workspaceRemoveRetention = document.querySelector('[data-ui="remove-workspace-dialog"]')?.textContent?.includes("项目目录和所有 Room 历史都会保留") === true;
+        const confirmRemoveWorkspace = document.querySelector('[data-ui="remove-workspace-dialog"] .dialog-button.danger');
+        if (!(confirmRemoveWorkspace instanceof HTMLButtonElement)) throw new Error("remove workspace confirmation is missing");
+        confirmRemoveWorkspace.click();
+        await waitFor(() => document.querySelectorAll('.workspace-group').length === 1, "workspace did not leave the catalog");
         const finalCatalog = await window.mesh.workspaceCatalog();
         return {
           firstWorkspaceId,
@@ -382,8 +436,10 @@ async function runSmoke(): Promise<void> {
           blankReusedCount,
           overflowSessionCount: overflowCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
           archivedSessionCount: archivedCatalog.workspaces.find((item) => item.id === firstWorkspaceId)?.sessions.length ?? 0,
-          sessionMenuItemLabel,
+          sessionMenuItemLabels,
           sessionMenuFocusRestored,
+          workspaceMenuItemLabels,
+          workspaceRemoveRetention,
           visibleBeforeExpand,
           overflowButtonLabel,
           collapsedProjectSessions,
@@ -402,6 +458,16 @@ async function runSmoke(): Promise<void> {
           collapsedViewportWidth,
           collapsedSidebarOverlayWidth,
           collapsedToggleHitTarget,
+          collapsedCreateHitTarget,
+          collapsedToggleAppRegion,
+          collapsedCreateAppRegion,
+          collapsedSidebarAppRegion,
+          collapsedCreateLabel,
+          collapsedSidebarPointerEvents,
+          collapsedBrandPointerEvents,
+          collapsedActionsPointerEvents,
+          topbarAppRegion,
+          topbarDragZoneAppRegion,
           expandedLeftWidth,
           collapsedToggleLeft: collapsedToggleRect.left,
           collapsedToggleTop: collapsedToggleRect.top,
@@ -435,8 +501,10 @@ async function runSmoke(): Promise<void> {
       readonly blankReusedCount: number;
       readonly overflowSessionCount: number;
       readonly archivedSessionCount: number;
-      readonly sessionMenuItemLabel: string;
+      readonly sessionMenuItemLabels: readonly string[];
       readonly sessionMenuFocusRestored: boolean;
+      readonly workspaceMenuItemLabels: readonly string[];
+      readonly workspaceRemoveRetention: boolean;
       readonly visibleBeforeExpand: number;
       readonly overflowButtonLabel: string;
       readonly collapsedProjectSessions: number;
@@ -455,6 +523,16 @@ async function runSmoke(): Promise<void> {
       readonly collapsedViewportWidth: number;
       readonly collapsedSidebarOverlayWidth: number;
       readonly collapsedToggleHitTarget: boolean;
+      readonly collapsedCreateHitTarget: boolean;
+      readonly collapsedToggleAppRegion: string;
+      readonly collapsedCreateAppRegion: string;
+      readonly collapsedSidebarAppRegion: string;
+      readonly collapsedCreateLabel: string | null;
+      readonly collapsedSidebarPointerEvents: string;
+      readonly collapsedBrandPointerEvents: string;
+      readonly collapsedActionsPointerEvents: string;
+      readonly topbarAppRegion: string;
+      readonly topbarDragZoneAppRegion: string;
       readonly expandedLeftWidth: number;
       readonly collapsedToggleLeft: number;
       readonly collapsedToggleTop: number;
@@ -485,8 +563,10 @@ async function runSmoke(): Promise<void> {
       navigation.blankReusedCount !== 3 ||
       navigation.overflowSessionCount !== 6 ||
       navigation.archivedSessionCount !== 5 ||
-      navigation.sessionMenuItemLabel !== "归档会话" ||
+      navigation.sessionMenuItemLabels.join("|") !== "重命名|归档会话" ||
       !navigation.sessionMenuFocusRestored ||
+      navigation.workspaceMenuItemLabels.join("|") !== "重命名|移除工作区" ||
+      !navigation.workspaceRemoveRetention ||
       navigation.visibleBeforeExpand !== 5 ||
       navigation.overflowButtonLabel !== "展示更多" ||
       navigation.collapsedProjectSessions !== 0 ||
@@ -505,6 +585,16 @@ async function runSmoke(): Promise<void> {
       navigation.collapsedGridWidth !== navigation.collapsedViewportWidth ||
       navigation.collapsedSidebarOverlayWidth !== 148 ||
       !navigation.collapsedToggleHitTarget ||
+      !navigation.collapsedCreateHitTarget ||
+      navigation.collapsedToggleAppRegion !== "no-drag" ||
+      navigation.collapsedCreateAppRegion !== "no-drag" ||
+      navigation.collapsedSidebarAppRegion !== "no-drag" ||
+      navigation.collapsedCreateLabel !== "新会话" ||
+      navigation.collapsedSidebarPointerEvents !== "auto" ||
+      navigation.collapsedBrandPointerEvents !== "auto" ||
+      navigation.collapsedActionsPointerEvents !== "auto" ||
+      navigation.topbarAppRegion !== "no-drag" ||
+      navigation.topbarDragZoneAppRegion !== "drag" ||
       navigation.expandedLeftWidth < 240 ||
       navigation.collapsedToggleLeft < 76 ||
       navigation.collapsedToggleLeft > 80 ||
@@ -523,8 +613,8 @@ async function runSmoke(): Promise<void> {
       navigation.messageFontSize < 14 ||
       navigation.inactiveWorkspaceFocusBackground !== "rgba(0, 0, 0, 0)" ||
       navigation.activeSessionCount !== 1 ||
-      navigation.renderedWorkspaceGroups !== 2 ||
-      navigation.renderedSessions !== 6 ||
+      navigation.renderedWorkspaceGroups !== 1 ||
+      navigation.renderedSessions !== 5 ||
       navigation.errorBanner.length > 0
     ) {
       throw new Error(`Unexpected workspace navigation state: ${JSON.stringify(navigation)}`);
@@ -701,6 +791,34 @@ async function runSmoke(): Promise<void> {
         writeFileSync(
           join(screenshotDirectory, `workspace-${String(size.width)}x${String(size.height)}.png`),
           workspaceScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `document.querySelector('.session-row.active .session-actions-trigger')?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }))`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const sessionMenuScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `workspace-session-menu-${String(size.width)}x${String(size.height)}.png`),
+          sessionMenuScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`,
+          true,
+        );
+        await window.webContents.executeJavaScript(
+          `document.querySelector('.workspace-actions-trigger')?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }))`,
+          true,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const workspaceMenuScreenshot = await window.webContents.capturePage();
+        writeFileSync(
+          join(screenshotDirectory, `workspace-project-menu-${String(size.width)}x${String(size.height)}.png`),
+          workspaceMenuScreenshot.toPNG(),
+        );
+        await window.webContents.executeJavaScript(
+          `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`,
+          true,
         );
         await window.webContents.executeJavaScript(
           `(document.querySelector(".right-sidebar-toggle"))?.click()`,

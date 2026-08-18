@@ -1,13 +1,13 @@
 # Mesh project status
 
-Last updated: **2026-08-17**
+Last updated: **2026-08-18**
 
 Implementation branch: **`main`**
 
 Verified committed implementation baseline: **`739fa32`** (`refactor(workspace): adopt session-first local storage`)
 
-Latest verified increment: **Tailwind/Radix/Lucide desktop renderer foundation
-at `79f53d9`**
+Latest verified increment: **DSH-aligned desktop sidebar actions in the current
+working tree on 2026-08-18**
 
 This file is the primary handoff document. Read it before choosing or
 implementing the next milestone.
@@ -64,9 +64,14 @@ collapses to 48 px, and the provisional Mesh wordmark is omitted.
 Project rows use folder icons that swap to disclosure chevrons on hover, default
 to five visible sessions with an explicit overflow action, and keep at most one
 reusable blank session. Desktop startup archives redundant historical blanks per
-workspace while preserving the current or newest blank. Inactive empty sessions
-also expose DSH's hover ellipsis and a recoverable “归档会话” menu action; neither
-path physically deletes Room data. Conversation members live in the right panel.
+workspace while preserving the current or newest blank. Every nonblank session,
+including the highlighted current one, exposes DSH-style hover actions for
+renaming and recoverable archival. Explicit titles remain local catalog metadata
+outside the Room ledger. Archiving the current session first switches to another
+valid session or a fresh blank. Project
+rows expose matching rename and remove actions; removal hides only the registration,
+preserves the project directory and all session data, and reopening the same path
+restores it. Conversation members live in the right panel.
 The renderer now uses the Codex system-font stack, 14/12/11 px type hierarchy,
 and neutral gray palette. Room identity, shared-history semantics, Agent actions,
 and diagnostic boundaries are unchanged by this visual refinement.
@@ -319,9 +324,8 @@ clipping, or unusable controls.
 
 The subsequent Codex/DSH-style shell refinement also passed `pnpm verify` and
 `pnpm smoke:desktop` on macOS on 2026-08-17. Seventeen workspace tests and twenty-one
-Desktop package tests now include recoverable session archival, startup cleanup
-of redundant historical blanks, and host-side rejection of active or non-empty
-deletion. Electron smoke clicks the real New
+Desktop package tests covered the original inactive-empty archival boundary and
+startup cleanup of redundant historical blanks. Electron smoke clicked the real New
 Session control repeatedly to verify blank-session reuse, creates six sessions to
 verify the five-row overflow state, opens the DSH-style session menu, archives an
 inactive empty session, toggles a project, and checks the zero-width left layout,
@@ -331,6 +335,17 @@ Fresh workspace and configuration captures at 1440×900 and 1040×680 verified t
 compact member/task panel and usable chat/config layouts without renderer
 diagnostics, clipping, or horizontal overflow. Workspace switching no longer
 projects its transient disabled state into unrelated renderer controls.
+
+The DSH-aligned sidebar-action follow-up passed `pnpm verify` and
+`pnpm smoke:desktop` on macOS on 2026-08-18. Nineteen workspace tests and
+twenty-three Desktop package tests cover registry-v1-to-v2 upgrade, durable
+workspace/session titles, active-session archival through
+a safe replacement, recoverable workspace removal/restoration, and preservation
+of every underlying SQLite database. Electron smoke verifies the active-row
+ellipsis, two-item session menu, keyboard focus restoration, two-item workspace
+menu, retention confirmation, actual workspace removal, title-bar hit targets,
+and 1440×900 / 1040×680 layouts without renderer diagnostics or overflow. Menu,
+dialog, expanded, and collapsed screenshots were visually checked at both sizes.
 
 The Tailwind/Radix/Lucide renderer-foundation refactor passed `pnpm verify` on
 2026-08-17. The gate retained all seventeen workspace tests, twenty-one Desktop
