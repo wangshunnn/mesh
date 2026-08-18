@@ -1,4 +1,6 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
 import { delimiter, resolve } from "node:path";
 
 import {
@@ -14,6 +16,11 @@ import {
   type AgentSessionStatus,
   type AgentTurnResult,
 } from "@ai-mesh/agent";
+
+const probeCache = new Map<string, {
+  readonly expiresAt: number;
+  readonly result: Promise<AgentAvailability>;
+}>();
 
 export interface NativeCommandAdapterOptions {
   readonly kind: string;
@@ -57,8 +64,19 @@ export class NativeCommandAdapter implements AgentAdapter {
     });
   }
 
-  async probe(): Promise<AgentAvailability> {
-    const command = resolveCommand(this.#options.command);
+  probe(): Promise<AgentAvailability> {
+    const now = Date.now();
+    const cached = probeCache.get(this.#options.command);
+    if (cached !== undefined && cached.expiresAt > now) {
+      return cached.result;
+    }
+    const result = this.#probe();
+    probeCache.set(this.#options.command, { expiresAt: now + 30_000, result });
+    return result;
+  }
+
+  async #probe(): Promise<AgentAvailability> {
+    const command = await resolveCommand(this.#options.command);
     if (command === undefined) {
       return Object.freeze({
         available: false,
@@ -66,15 +84,11 @@ export class NativeCommandAdapter implements AgentAdapter {
         reason: `Command ${this.#options.command} was not found on PATH.`,
       });
     }
-    const result = spawnSync(command, ["--version"], {
-      encoding: "utf8",
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const version = await readCommandVersion(command);
     return Object.freeze({
       available: true,
       command,
-      ...(result.status === 0 ? { version: result.stdout.trim() || result.stderr.trim() } : {}),
+      ...(version === undefined ? {} : { version }),
     });
   }
 
@@ -357,18 +371,31 @@ export function parseCodexJsonLine(line: string): NativeOutputEvent | undefined 
   return undefined;
 }
 
-function resolveCommand(command: string): string | undefined {
-  if (command.includes("/")) {
-    const result = spawnSync("test", ["-x", command]);
-    return result.status === 0 ? command : undefined;
-  }
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    const candidate = resolve(directory, command);
-    if (spawnSync("test", ["-x", candidate]).status === 0) {
+async function resolveCommand(command: string): Promise<string | undefined> {
+  const candidates = command.includes("/")
+    ? [command]
+    : (process.env.PATH ?? "").split(delimiter).map((directory) => resolve(directory, command));
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
       return candidate;
+    } catch {
+      // Continue searching PATH without spawning a synchronous helper process.
     }
   }
   return undefined;
+}
+
+function readCommandVersion(command: string): Promise<string | undefined> {
+  return new Promise((resolveVersion) => {
+    execFile(command, ["--version"], { encoding: "utf8", timeout: 5_000 }, (error, stdout, stderr) => {
+      if (error !== null) {
+        resolveVersion(undefined);
+        return;
+      }
+      resolveVersion(stdout.trim() || stderr.trim() || undefined);
+    });
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

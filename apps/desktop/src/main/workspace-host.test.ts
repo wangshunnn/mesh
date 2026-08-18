@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   MeshWorkspace,
+  WorkspaceAdapterRegistry,
   WorkspaceConfigConflictError,
   listRegisteredWorkspaceSessions,
   listWorkspaceRegistrations,
@@ -104,6 +105,58 @@ test("desktop host creates and switches isolated sessions without reordering his
     selected.catalog.workspaces[0]?.sessions.map(({ id }) => id),
     [secondId, first.sessionId],
   );
+  await host.close();
+});
+
+test("desktop host keeps sessions cold and starts only Agents addressed by Human messages", async () => {
+  const { root, meshHome } = hostFixture("mesh-desktop-host-lazy-agents-");
+  const starts = new Map<string, number>();
+  const host = DesktopWorkspaceHost.open(root, {
+    meshHome,
+    adapterRegistry: trackingAdapterRegistry(starts),
+  });
+
+  assert.deepEqual(
+    (await host.run((workspace) => workspace.snapshot())).agents.map((agent) => agent.state),
+    ["offline", "offline"],
+  );
+  await host.postMessage({ text: "@codex only you" });
+  await waitFor(() => starts.get("agent:codex") === 1);
+  assert.equal(starts.get("agent:opencode") ?? 0, 0);
+
+  await host.postMessage({ text: "Everyone can see this", to: "team" });
+  await waitFor(() => starts.get("agent:opencode") === 1);
+  assert.equal(starts.get("agent:codex"), 1);
+
+  const workspaceId = await host.run((workspace) => workspace.workspaceId);
+  const created = await host.createSession({ workspaceId });
+  assert.deepEqual(created.snapshot.messages, []);
+  assert.equal(starts.get("agent:opencode"), 1);
+  assert.equal(starts.get("agent:codex"), 1);
+  assert.deepEqual(created.snapshot.agents.map((agent) => agent.state), ["offline", "offline"]);
+  await host.close();
+});
+
+test("an asynchronous Agent probe does not serialize session navigation", { timeout: 2_000 }, async () => {
+  const { root, meshHome } = hostFixture("mesh-desktop-host-probe-navigation-");
+  let releaseProbe: (() => void) | undefined;
+  const probeGate = new Promise<void>((resolve) => {
+    releaseProbe = resolve;
+  });
+  const host = DesktopWorkspaceHost.open(root, {
+    meshHome,
+    adapterRegistry: gatedProbeAdapterRegistry(probeGate),
+  });
+  const workspaceId = await host.run((workspace) => {
+    workspace.postText("Create another session", { idempotencyKey: "probe-navigation-history" });
+    return workspace.workspaceId;
+  });
+
+  const probing = host.probeAgents();
+  const created = await host.createSession({ workspaceId });
+  assert.deepEqual(created.snapshot.messages, []);
+  releaseProbe?.();
+  await assert.rejects(probing, /active session changed/);
   await host.close();
 });
 
@@ -300,4 +353,91 @@ function hostFixture(prefix: string): { readonly root: string; readonly meshHome
   const root = join(directory, "project");
   mkdirSync(root);
   return Object.freeze({ root, meshHome: join(directory, "mesh-home") });
+}
+
+function trackingAdapterRegistry(starts: Map<string, number>): WorkspaceAdapterRegistry {
+  return new WorkspaceAdapterRegistry([
+    Object.freeze({
+      kind: "opencode-acp" as const,
+      create: () => trackingAdapter("tracking-opencode", starts),
+    }),
+    Object.freeze({
+      kind: "codex-native" as const,
+      create: () => trackingAdapter("tracking-codex", starts),
+    }),
+  ]);
+}
+
+function gatedProbeAdapterRegistry(gate: Promise<void>): WorkspaceAdapterRegistry {
+  return new WorkspaceAdapterRegistry([
+    Object.freeze({
+      kind: "opencode-acp" as const,
+      create: () => gatedProbeAdapter("gated-opencode", gate),
+    }),
+    Object.freeze({
+      kind: "codex-native" as const,
+      create: () => gatedProbeAdapter("gated-codex", gate),
+    }),
+  ]);
+}
+
+function trackingAdapter(
+  kind: string,
+  starts: Map<string, number>,
+): ReturnType<WorkspaceAdapterRegistry["create"]> {
+  const adapter = gatedProbeAdapter(kind, Promise.resolve());
+  return Object.freeze({
+    ...adapter,
+    start: async (config: Parameters<typeof adapter.start>[0]) => {
+      starts.set(config.agentId, (starts.get(config.agentId) ?? 0) + 1);
+      return adapter.start(config);
+    },
+  });
+}
+
+function gatedProbeAdapter(
+  kind: string,
+  gate: Promise<void>,
+): ReturnType<WorkspaceAdapterRegistry["create"]> {
+  type Adapter = ReturnType<WorkspaceAdapterRegistry["create"]>;
+  type Session = Awaited<ReturnType<Adapter["start"]>>;
+  const capabilities = Object.freeze({
+    persistentSession: true,
+    streaming: false,
+    cancel: true,
+    loadSession: true,
+    transport: "scripted" as const,
+  });
+  return Object.freeze({
+    kind,
+    capabilities,
+    probe: async () => {
+      await gate;
+      return Object.freeze({ available: true, command: kind, version: "test" });
+    },
+    start: async (config: Parameters<Adapter["start"]>[0]) => Object.freeze({
+      id: config.sessionId ?? `${kind}:${config.agentId}`,
+      agentId: config.agentId,
+      capabilities,
+      status: "ready" as const,
+      prompt: async (input: Parameters<Session["prompt"]>[0]) => Object.freeze({
+        turnId: input.turnId,
+        text: "",
+        stopReason: "completed" as const,
+      }),
+      cancel: async () => undefined,
+      events: async function* () {
+        return;
+      },
+      stop: async () => undefined,
+    }),
+  });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error("Condition did not become true.");
 }

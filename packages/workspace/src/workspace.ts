@@ -68,6 +68,14 @@ export interface StartAvailableAgentsResult {
   }[];
 }
 
+export interface StartAttentionAgentsResult {
+  readonly started: readonly ParticipantId[];
+  readonly failed: readonly {
+    readonly agentId: ParticipantId;
+    readonly message: string;
+  }[];
+}
+
 /** Local composition root shared by the headless CLI and Electron main process. */
 export class MeshWorkspace {
   readonly workspaceId: string;
@@ -376,6 +384,28 @@ export class MeshWorkspace {
       started: Object.freeze(started),
       unavailable: Object.freeze(probes.filter((probe) => !probe.availability.available)),
       failed: Object.freeze(failed),
+    });
+  }
+
+  async startAgentsForAttention(attention: MessageAttention): Promise<StartAttentionAgentsResult> {
+    this.#assertOpen();
+    const agentIds = attention === "team"
+      ? this.config.agents.filter((agent) => agent.respondToTeam ?? false).map((agent) => agent.id)
+      : attention.filter((participantId) =>
+        this.config.agents.some((agent) => agent.id === participantId));
+    const results = await Promise.all(agentIds.map(async (agentId) => {
+      try {
+        await this.runtime.startAgent(agentId);
+        return { agentId, started: true as const };
+      } catch (error) {
+        return { agentId, started: false as const, message: errorMessage(error) };
+      }
+    }));
+    return Object.freeze({
+      started: Object.freeze(results.filter((result) => result.started).map((result) => result.agentId)),
+      failed: Object.freeze(results.flatMap((result) => result.started
+        ? []
+        : [{ agentId: result.agentId, message: result.message }])),
     });
   }
 

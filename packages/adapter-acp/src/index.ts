@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { constants } from "node:fs";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import * as acp from "@agentclientprotocol/sdk";
 import {
@@ -17,6 +18,11 @@ import {
   type AgentSessionStatus,
   type AgentTurnResult,
 } from "@ai-mesh/agent";
+
+const probeCache = new Map<string, {
+  readonly expiresAt: number;
+  readonly result: Promise<AgentAvailability>;
+}>();
 
 export interface AcpProcessAdapterOptions {
   readonly kind: string;
@@ -62,8 +68,19 @@ export class AcpProcessAdapter implements AgentAdapter {
     this.#runtime = runtime;
   }
 
-  async probe(): Promise<AgentAvailability> {
-    const command = resolveCommand(this.#options.command);
+  probe(): Promise<AgentAvailability> {
+    const now = Date.now();
+    const cached = probeCache.get(this.#options.command);
+    if (cached !== undefined && cached.expiresAt > now) {
+      return cached.result;
+    }
+    const result = this.#probe();
+    probeCache.set(this.#options.command, { expiresAt: now + 30_000, result });
+    return result;
+  }
+
+  async #probe(): Promise<AgentAvailability> {
+    const command = await resolveCommand(this.#options.command);
     if (command === undefined) {
       return Object.freeze({
         available: false,
@@ -71,15 +88,11 @@ export class AcpProcessAdapter implements AgentAdapter {
         reason: `Command ${this.#options.command} was not found on PATH.`,
       });
     }
-    const version = spawnSync(command, ["--version"], {
-      encoding: "utf8",
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const version = await readCommandVersion(command);
     return Object.freeze({
       available: true,
       command,
-      ...(version.status === 0 ? { version: version.stdout.trim() || version.stderr.trim() } : {}),
+      ...(version === undefined ? {} : { version }),
     });
   }
 
@@ -499,18 +512,31 @@ function restrictPath(cwd: string, path: string): string {
   return target;
 }
 
-function resolveCommand(command: string): string | undefined {
-  if (command.includes("/")) {
-    return spawnSync("test", ["-x", command]).status === 0 ? command : undefined;
-  }
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    const candidate = resolve(directory, command);
-    const result = spawnSync("test", ["-x", candidate]);
-    if (result.status === 0) {
+async function resolveCommand(command: string): Promise<string | undefined> {
+  const candidates = command.includes("/")
+    ? [command]
+    : (process.env.PATH ?? "").split(delimiter).map((directory) => resolve(directory, command));
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
       return candidate;
+    } catch {
+      // Continue searching PATH without spawning a synchronous helper process.
     }
   }
   return undefined;
+}
+
+function readCommandVersion(command: string): Promise<string | undefined> {
+  return new Promise((resolveVersion) => {
+    execFile(command, ["--version"], { encoding: "utf8", timeout: 5_000 }, (error, stdout, stderr) => {
+      if (error !== null) {
+        resolveVersion(undefined);
+        return;
+      }
+      resolveVersion(stdout.trim() || stderr.trim() || undefined);
+    });
+  });
 }
 
 function errorMessage(error: unknown): string {

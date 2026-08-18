@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 
 import type {
+  AgentProbeView,
   RoomSnapshot,
   WorkspaceCatalogView,
   WorkspaceConfigPreview,
@@ -8,8 +9,10 @@ import type {
   WorkspaceConfigWriteResult,
   WorkspaceSelectionView,
 } from "@ai-mesh/application";
+import type { MessageAttention } from "@ai-mesh/protocol";
 import {
   MeshWorkspace,
+  type WorkspaceAdapterRegistry,
   archiveRegisteredWorkspace,
   archiveRegisteredWorkspaceSession,
   listRegisteredWorkspaceSessions,
@@ -34,16 +37,19 @@ type CatalogListener = (catalog: WorkspaceCatalogView) => void;
 export class DesktopWorkspaceHost {
   readonly meshHome: string;
 
+  readonly #adapterRegistry: WorkspaceAdapterRegistry | undefined;
   readonly #listeners = new Set<SnapshotListener>();
   readonly #catalogListeners = new Set<CatalogListener>();
+  readonly #agentStartTasks = new Set<Promise<unknown>>();
   #workspace: MeshWorkspace | undefined;
   #unsubscribeWorkspace: (() => void) | undefined;
   #catalogTimer: ReturnType<typeof setTimeout> | undefined;
   #tail: Promise<void> = Promise.resolve();
   #closing = false;
 
-  private constructor(workspace: MeshWorkspace) {
+  private constructor(workspace: MeshWorkspace, adapterRegistry?: WorkspaceAdapterRegistry) {
     this.meshHome = workspace.meshHome;
+    this.#adapterRegistry = adapterRegistry;
     this.#install(workspace);
     this.#archiveRedundantBlankSessions();
   }
@@ -54,9 +60,10 @@ export class DesktopWorkspaceHost {
       readonly meshHome?: string;
       readonly sessionId?: string;
       readonly createSession?: boolean;
+      readonly adapterRegistry?: WorkspaceAdapterRegistry;
     } = {},
   ): DesktopWorkspaceHost {
-    return new DesktopWorkspaceHost(MeshWorkspace.open({ root, ...options }));
+    return new DesktopWorkspaceHost(MeshWorkspace.open({ root, ...options }), options.adapterRegistry);
   }
 
   run<T>(operation: (workspace: MeshWorkspace) => T | Promise<T>): Promise<T> {
@@ -71,6 +78,44 @@ export class DesktopWorkspaceHost {
       return Promise.reject(new Error("Desktop workspace is closing."));
     }
     return this.#enqueue(() => this.#catalog());
+  }
+
+  probeAgents(): Promise<readonly AgentProbeView[]> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    const active = this.#requireWorkspace();
+    return active.probeAgents().then((probes) => {
+      if (this.#workspace !== active) {
+        throw new Error("Agent probe completed after the active session changed.");
+      }
+      return Object.freeze(probes.map((probe) => Object.freeze({
+        id: probe.id,
+        available: probe.availability.available,
+        ...(probe.availability.version === undefined ? {} : { version: probe.availability.version }),
+        ...(probe.availability.reason === undefined ? {} : { reason: probe.availability.reason }),
+      })));
+    });
+  }
+
+  postMessage(input: { readonly text: string; readonly to?: string }): Promise<RoomSnapshot> {
+    if (this.#closing) {
+      return Promise.reject(new Error("Desktop workspace is closing."));
+    }
+    return this.#enqueue(() => {
+      const active = this.#requireWorkspace();
+      const attention: MessageAttention | undefined = input.to === undefined
+        ? undefined
+        : input.to === "team"
+          ? "team"
+          : [active.resolveParticipant(input.to)];
+      const event = active.postText(input.text, {
+        ...(attention === undefined ? {} : { attention }),
+      });
+      const snapshot = active.snapshot();
+      this.#scheduleAgentStart(active, event.payload.attention);
+      return snapshot;
+    });
   }
 
   openWorkspace(input: { readonly root: string }): Promise<WorkspaceSelectionView> {
@@ -308,7 +353,7 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
+        this.#install(this.#open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
       } catch (reloadError) {
         try {
           saveWorkspaceConfig({
@@ -319,7 +364,7 @@ export class DesktopWorkspaceHost {
             config: previous.config,
             expectedRevision: written.revision,
           });
-          this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
+          this.#install(this.#open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
         } catch (recoveryError) {
           throw new AggregateError(
             [reloadError, recoveryError],
@@ -362,11 +407,11 @@ export class DesktopWorkspaceHost {
         closeError = error;
       }
       try {
-        this.#install(MeshWorkspace.open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
+        this.#install(this.#open({ root: active.root, meshHome: this.meshHome, sessionId: active.sessionId }));
       } catch (reloadError) {
         try {
           this.#install(
-            MeshWorkspace.open({
+            this.#open({
               root: active.root,
               meshHome: this.meshHome,
               sessionId: active.sessionId,
@@ -420,6 +465,7 @@ export class DesktopWorkspaceHost {
       this.#detach();
       this.#workspace = undefined;
       await active?.close();
+      await Promise.allSettled([...this.#agentStartTasks]);
       this.#listeners.clear();
       this.#catalogListeners.clear();
     });
@@ -474,6 +520,12 @@ export class DesktopWorkspaceHost {
       if (!this.#closing && this.#workspace !== undefined) this.#publishCatalog(this.#catalog());
     }, 80);
     this.#catalogTimer.unref?.();
+  }
+
+  #scheduleAgentStart(workspace: MeshWorkspace, attention: MessageAttention): void {
+    const task = workspace.startAgentsForAttention(attention);
+    this.#agentStartTasks.add(task);
+    void task.finally(() => this.#agentStartTasks.delete(task));
   }
 
   #archiveRedundantBlankSessions(): void {
@@ -567,10 +619,10 @@ export class DesktopWorkspaceHost {
     }
 
     try {
-      this.#install(MeshWorkspace.open(options));
+      this.#install(this.#open(options));
     } catch (openError) {
       try {
-        this.#install(MeshWorkspace.open(previous));
+        this.#install(this.#open(previous));
       } catch (recoveryError) {
         throw new AggregateError(
           [openError, recoveryError],
@@ -604,6 +656,13 @@ export class DesktopWorkspaceHost {
 
   #assertRootAvailable(root: string): void {
     if (!existsSync(root)) throw new Error(`Project directory is missing or unavailable: ${root}`);
+  }
+
+  #open(options: Parameters<typeof MeshWorkspace.open>[0]): MeshWorkspace {
+    return MeshWorkspace.open({
+      ...options,
+      ...(this.#adapterRegistry === undefined ? {} : { adapterRegistry: this.#adapterRegistry }),
+    });
   }
 
   #requireWorkspace(): MeshWorkspace {

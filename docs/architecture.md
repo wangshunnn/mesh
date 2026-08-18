@@ -181,10 +181,15 @@ native directory picker crosses IPC as a selected path rather than filesystem
 access in the renderer. Every switch closes the active immutable composition,
 opens the selected session, moves subscriptions, and restores the previous
 session if the target cannot open. Selecting an existing session never reorders
-the registry. The Desktop New Session intent reuses the workspace's one existing
-unarchived blank session; only when none exists does it prepend a newly created
-session ID. The active session is classified from its live Room snapshot rather
-than a possibly stale cold projection.
+the registry. Navigation and configuration reload keep Agents cold. A Human
+message is committed to the Room first, then the active host starts only the
+Agents selected by the committed message's `attention`; their durable cursors
+recover the new fact after startup. Availability probes are asynchronous and do
+not enter the host's serialized replacement queue. The Desktop New Session
+intent reuses the workspace's one existing unarchived blank session; only when
+none exists does it prepend a newly created session ID. The active session is
+classified from its live Room snapshot rather than a possibly stale cold
+projection.
 
 Desktop removal is deliberately a recoverable catalog operation, not destructive
 Room deletion. Any valid nonblank session row can be archived; when it is current,

@@ -1,7 +1,5 @@
 import { dialog, ipcMain } from "electron";
 
-import type { MessageAttention } from "@ai-mesh/protocol";
-
 import { desktopChannels, type DesktopApi } from "../shared/api.js";
 import type { DesktopWorkspaceHost } from "./workspace-host.js";
 
@@ -83,18 +81,7 @@ export function registerDesktopIpc(
   ipcMain.handle(desktopChannels.reloadConfig, () => host.reloadConfig());
   ipcMain.handle(
     desktopChannels.postMessage,
-    (_event, input: Parameters<DesktopApi["postMessage"]>[0]) => host.run((activeWorkspace) => {
-      const attention: MessageAttention | undefined =
-        input.to === undefined
-          ? undefined
-          : input.to === "team"
-            ? "team"
-            : [activeWorkspace.resolveParticipant(input.to)];
-      activeWorkspace.postText(input.text, {
-        ...(attention === undefined ? {} : { attention }),
-      });
-      return activeWorkspace.snapshot();
-    }),
+    (_event, input: Parameters<DesktopApi["postMessage"]>[0]) => host.postMessage(input),
   );
   ipcMain.handle(
     desktopChannels.createTask,
@@ -142,17 +129,7 @@ export function registerDesktopIpc(
       return activeWorkspace.snapshot();
     }),
   );
-  ipcMain.handle(desktopChannels.probeAgents, () =>
-    host.run(async (activeWorkspace) => {
-      const probes = await activeWorkspace.probeAgents();
-      return probes.map((probe) => ({
-        id: probe.id,
-        available: probe.availability.available,
-        ...(probe.availability.version === undefined ? {} : { version: probe.availability.version }),
-        ...(probe.availability.reason === undefined ? {} : { reason: probe.availability.reason }),
-      }));
-    }),
-  );
+  ipcMain.handle(desktopChannels.probeAgents, () => host.probeAgents());
   ipcMain.handle(desktopChannels.startAvailableAgents, () =>
     host.run(async (activeWorkspace) => {
       await activeWorkspace.startAvailableAgents();

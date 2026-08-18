@@ -42,6 +42,20 @@ export function App(): React.JSX.Element {
   const [busy, setBusy] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const chatEnd = useRef<HTMLDivElement>(null);
+  const probeRequest = useRef(0);
+
+  const refreshProbes = (): void => {
+    const request = ++probeRequest.current;
+    setProbes([]);
+    if (window.mesh === undefined) return;
+    void window.mesh.probeAgents()
+      .then((availability) => {
+        if (probeRequest.current === request) setProbes(availability);
+      })
+      .catch((caught: unknown) => {
+        if (probeRequest.current === request) setError(errorMessage(caught));
+      });
+  };
 
   useEffect(() => {
     let live = true;
@@ -59,19 +73,18 @@ export function App(): React.JSX.Element {
     }
     void Promise.all([
       window.mesh.snapshot(),
-      window.mesh.probeAgents(),
       window.mesh.configPreview(),
       window.mesh.workspaceCatalog(),
     ])
-      .then(([initial, availability, configuration, workspaceCatalog]) => {
+      .then(([initial, configuration, workspaceCatalog]) => {
         if (live) {
           setSnapshot(initial);
-          setProbes(availability);
           setConfigPreview(configuration);
           setCatalog(workspaceCatalog);
         }
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
+    refreshProbes();
     const unsubscribe = window.mesh.onSnapshot((next) => {
       if (live) {
         setSnapshot(next);
@@ -82,6 +95,7 @@ export function App(): React.JSX.Element {
     });
     return () => {
       live = false;
+      probeRequest.current += 1;
       unsubscribe();
       unsubscribeCatalog();
     };
@@ -113,22 +127,24 @@ export function App(): React.JSX.Element {
   ): Promise<WorkspaceConfigWriteResult | undefined> => {
     setBusy("save-config");
     setError(undefined);
+    probeRequest.current += 1;
+    setProbes([]);
     try {
       if (window.mesh === undefined) {
         throw new Error("预览模式不能保存配置，请打开 Electron 应用。");
       }
       const result = await window.mesh.saveConfig(input);
-      const [nextSnapshot, nextProbes, nextPreview] = await Promise.all([
+      const [nextSnapshot, nextPreview] = await Promise.all([
         window.mesh.snapshot(),
-        window.mesh.probeAgents(),
         window.mesh.configPreview(),
       ]);
       setSnapshot(nextSnapshot);
-      setProbes(nextProbes);
       setConfigPreview(nextPreview);
+      refreshProbes();
       return result;
     } catch (caught) {
       setError(configurationErrorMessage(caught));
+      refreshProbes();
       return undefined;
     } finally {
       setBusy(undefined);
@@ -138,21 +154,21 @@ export function App(): React.JSX.Element {
   const reloadConfiguration = async (): Promise<boolean> => {
     setBusy("reload-config");
     setError(undefined);
+    probeRequest.current += 1;
+    setProbes([]);
     try {
       if (window.mesh === undefined) {
         throw new Error("预览模式不能重新加载配置，请打开 Electron 应用。");
       }
       const nextPreview = await window.mesh.reloadConfig();
-      const [nextSnapshot, nextProbes] = await Promise.all([
-        window.mesh.snapshot(),
-        window.mesh.probeAgents(),
-      ]);
+      const nextSnapshot = await window.mesh.snapshot();
       setConfigPreview(nextPreview);
       setSnapshot(nextSnapshot);
-      setProbes(nextProbes);
+      refreshProbes();
       return true;
     } catch (caught) {
       setError(configurationErrorMessage(caught));
+      refreshProbes();
       return false;
     } finally {
       setBusy(undefined);
@@ -165,20 +181,26 @@ export function App(): React.JSX.Element {
   ): Promise<boolean> => {
     setBusy(key);
     setError(undefined);
+    probeRequest.current += 1;
+    setProbes([]);
     try {
       if (window.mesh === undefined) {
         throw new Error("预览模式不能切换工作区或会话，请打开 Electron 应用。");
       }
       const selection = await operation();
-      if (selection === undefined) return false;
-      setSnapshot(selection.snapshot);
+      if (selection === undefined) {
+        refreshProbes();
+        return false;
+      }
       setCatalog(selection.catalog);
       setConfigPreview(selection.configPreview);
-      setProbes(await window.mesh.probeAgents());
+      setSnapshot(selection.snapshot);
       setView("room");
+      refreshProbes();
       return true;
     } catch (caught) {
       setError(workspaceErrorMessage(caught));
+      refreshProbes();
       return false;
     } finally {
       setBusy(undefined);

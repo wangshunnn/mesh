@@ -134,7 +134,12 @@ configuration boundary remains closed to the two built-in adapter kinds.
 - A scripted adapter provides deterministic tests and evals.
 - The default workspace config registers `@opencode` and `@codex`, both responding
   to team attention.
-- Adapter permissions default to `deny`; availability is probed before startup.
+- Adapter permissions default to `deny`; availability probes are asynchronous,
+  briefly deduplicated by command across compositions, and never gate Desktop
+  session navigation.
+- Desktop commits a Human message before starting the Agents selected by its
+  resolved `attention`; open/select/config reload keep Agents cold, and member
+  rows retain independent stop/start controls.
 - Model choice currently comes from the underlying OpenCode or Codex
   configuration. Mesh has no model picker yet.
 
@@ -373,9 +378,10 @@ These are current boundaries, not regressions:
    registry intentionally does not place an identity marker in the project. The
    Desktop sidebar reports a missing root but cannot rebind it yet.
 3. **Incomplete onboarding configuration.** Desktop can choose projects, create
-   sessions, and edit existing config-v1 Room and Agent fields, but it cannot add
-   or remove Agent entries or select provider/model options. Authentication and
-   proxy failures still lack dedicated product guidance.
+   sessions, edit existing config-v1 Room and Agent fields, and lazily start the
+   Agents addressed by Human messages, but it cannot add or remove Agent entries or
+   select provider/model options. Authentication and proxy failures still lack
+   dedicated product guidance.
 4. **Two production adapter kinds.** Workspace validation and its immutable
    code-level provider registry currently accept only `opencode-acp` and
    `codex-native`; there is no dynamic or external plugin loading contract.
@@ -404,7 +410,8 @@ Implement the increment in this order:
 2. preserve adapter-native detail for diagnostics while projecting concise Chinese
    recovery guidance in Desktop;
 3. add an onboarding status surface that distinguishes unavailable, needs setup,
-   ready, starting, and failed Agents without starting them implicitly;
+   ready, starting, and failed Agents while preserving attention-driven lazy
+   startup and per-member controls;
 4. cover clean-machine missing-command and unauthenticated paths in deterministic
    tests and Electron smoke without requiring real credentials;
 5. separately inventory how each built-in adapter discovers provider/model

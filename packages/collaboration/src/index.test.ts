@@ -700,3 +700,62 @@ test("adapter start failures become durable error presence", async () => {
   assert.match(runtime.snapshot().agents[0]?.detail ?? "", /failed to start/);
   await runtime.close();
 });
+
+test("runtime close fences a concurrent Agent start and stops the late session", async () => {
+  const room = new InMemoryRoomLedger("room:close-during-start");
+  const runtime = new CollaborationRuntime({
+    room,
+    cursors: new InMemoryCursorStore(),
+    cwd: process.cwd(),
+  });
+  let releaseStart: (() => void) | undefined;
+  const startGate = new Promise<void>((resolve) => {
+    releaseStart = resolve;
+  });
+  let stops = 0;
+  const adapter: AgentAdapter = {
+    kind: "deferred-start",
+    capabilities: {
+      persistentSession: true,
+      streaming: false,
+      cancel: true,
+      loadSession: true,
+      transport: "scripted",
+    },
+    probe: async () => ({ available: true, command: "deferred-start" }),
+    start: async (config) => {
+      await startGate;
+      return {
+        id: "deferred:1",
+        agentId: config.agentId,
+        capabilities: adapter.capabilities,
+        status: "ready",
+        prompt: async (input) => ({
+          turnId: input.turnId,
+          text: "",
+          stopReason: "completed",
+        }),
+        cancel: async () => undefined,
+        events: async function* () {
+          return;
+        },
+        stop: async () => {
+          stops += 1;
+        },
+      };
+    },
+  };
+  runtime.registerAgent({
+    id: "agent:a",
+    name: "A",
+    handle: "a",
+    adapter,
+  });
+
+  const starting = runtime.startAgent("agent:a");
+  const closing = runtime.close();
+  await assert.rejects(runtime.startAgent("agent:a"), /closing/);
+  releaseStart?.();
+  await Promise.all([starting, closing]);
+  assert.equal(stops, 1);
+});

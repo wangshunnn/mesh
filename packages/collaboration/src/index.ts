@@ -92,6 +92,8 @@ export class CollaborationRuntime {
   readonly #listeners = new Set<SnapshotListener>();
   readonly #unsubscribeRoom: Unsubscribe;
   #closed = false;
+  #closing = false;
+  #closeTask: Promise<void> | undefined;
 
   constructor(options: CollaborationRuntimeOptions) {
     this.room = options.room;
@@ -162,6 +164,9 @@ export class CollaborationRuntime {
 
   async startAgent(agentId: ParticipantId): Promise<void> {
     this.#assertOpen();
+    if (this.#closing) {
+      throw new Error("Collaboration runtime is closing.");
+    }
     if (this.#workers.has(agentId)) {
       return;
     }
@@ -366,10 +371,15 @@ export class CollaborationRuntime {
     throw new Error("Collaboration runtime did not settle after 50 passes.");
   }
 
-  async close(): Promise<void> {
-    if (this.#closed) {
-      return;
-    }
+  close(): Promise<void> {
+    if (this.#closeTask !== undefined) return this.#closeTask;
+    if (this.#closed) return Promise.resolve();
+    this.#closing = true;
+    this.#closeTask = this.#close();
+    return this.#closeTask;
+  }
+
+  async #close(): Promise<void> {
     await Promise.all([...this.#workers.keys()].map((agentId) => this.stopAgent(agentId)));
     this.#unsubscribeRoom();
     this.#listeners.clear();
@@ -484,6 +494,8 @@ class AgentWorker {
   #unsubscribeWake: Unsubscribe | undefined;
   #unsubscribeRoomChanges: Unsubscribe | undefined;
   #work: Promise<void> = Promise.resolve();
+  #startTask: Promise<void> | undefined;
+  #stopTask: Promise<void> | undefined;
   #stopping = false;
   #failed = false;
   #lastSessionStatus: AgentSessionStatus | undefined;
@@ -513,7 +525,13 @@ class AgentWorker {
     return this.#session?.id ?? this.#initialSessionId ?? `pending:${this.#definition.id}`;
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    if (this.#startTask !== undefined) return this.#startTask;
+    this.#startTask = this.#start();
+    return this.#startTask;
+  }
+
+  async #start(): Promise<void> {
     this.#runtime.recordTrace({
       actorId: this.#definition.id,
       kind: "agent.session.starting",
@@ -548,6 +566,10 @@ class AgentWorker {
         detail: errorMessage(error),
       });
       throw error;
+    }
+    if (this.#stopping) {
+      await session.stop();
+      return;
     }
     const readyAt = Date.now();
     this.#session = session;
@@ -593,10 +615,13 @@ class AgentWorker {
     }
   }
 
-  async stop(): Promise<void> {
-    if (this.#stopping) {
-      return;
-    }
+  stop(): Promise<void> {
+    if (this.#stopTask !== undefined) return this.#stopTask;
+    this.#stopTask = this.#stop();
+    return this.#stopTask;
+  }
+
+  async #stop(): Promise<void> {
     this.#stopping = true;
     const stoppingSessionId = this.#session?.id ?? this.#initialSessionId;
     this.#runtime.recordTrace({
@@ -609,6 +634,12 @@ class AgentWorker {
     this.#unsubscribeWake = undefined;
     this.#unsubscribeRoomChanges?.();
     this.#unsubscribeRoomChanges = undefined;
+    try {
+      await this.#startTask;
+    } catch {
+      // Startup already recorded the adapter failure. Cleanup still owns the
+      // final offline transition and must be allowed to complete.
+    }
     const session = this.#session;
     if (session !== undefined) {
       if (session.status === "working") {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { BrowserWindow, app } from "electron";
+import { WorkspaceAdapterRegistry } from "@ai-mesh/workspace";
 
 import { registerDesktopIpc } from "./ipc.js";
 import { DesktopWorkspaceHost } from "./workspace-host.js";
@@ -16,6 +17,8 @@ mkdirSync(secondRoot);
 const canonicalSecondRoot = realpathSync(secondRoot);
 const screenshotDirectory = process.env.MESH_SMOKE_SCREENSHOT_DIR;
 const rendererErrors: string[] = [];
+const startedAgentIds = new Set<string>();
+let nextSmokeSession = 1;
 let workspaceHost: DesktopWorkspaceHost | undefined;
 let window: BrowserWindow | undefined;
 let unregisterIpc: (() => void) | undefined;
@@ -37,7 +40,10 @@ try {
 async function runSmoke(): Promise<void> {
   try {
     console.log("Electron smoke: app ready.");
-    workspaceHost = DesktopWorkspaceHost.open(root, { meshHome });
+    workspaceHost = DesktopWorkspaceHost.open(root, {
+      meshHome,
+      adapterRegistry: smokeAdapterRegistry(),
+    });
     unregisterIpc = registerDesktopIpc(workspaceHost, {
       chooseWorkspaceDirectory: async () => secondRoot,
     });
@@ -114,6 +120,7 @@ async function runSmoke(): Promise<void> {
         return {
           roomId: reloadedSnapshot.roomId,
           agentCount: reloadedSnapshot.agents.length,
+          runningAgentCount: reloadedSnapshot.agents.filter((agent) => agent.state !== "offline" && agent.state !== "error").length,
           configRoomId: config.config.roomId,
           configSource: config.source,
           savedConfigSource: savedConfig.source,
@@ -132,6 +139,7 @@ async function runSmoke(): Promise<void> {
     )) as {
       readonly roomId: string;
       readonly agentCount: number;
+      readonly runningAgentCount: number;
       readonly configRoomId: string;
       readonly configSource: string;
       readonly savedConfigSource: string;
@@ -158,7 +166,9 @@ async function runSmoke(): Promise<void> {
       result.savedConfigSource !== "file" ||
       result.savedConfigRevision === null ||
       result.savedAgentName !== "OpenCode Smoke" ||
-      result.agentCount !== 2
+      result.agentCount !== 2 ||
+      result.runningAgentCount !== 0 ||
+      startedAgentCount() !== 0
     ) {
       throw new Error(`Unexpected desktop state: ${JSON.stringify(result)}`);
     }
@@ -870,6 +880,60 @@ async function runSmoke(): Promise<void> {
     clearTimeout(deadline);
     app.exit(exitCode);
   }
+}
+
+function smokeAdapterRegistry(): WorkspaceAdapterRegistry {
+  return new WorkspaceAdapterRegistry([
+    Object.freeze({
+      kind: "opencode-acp" as const,
+      create: () => smokeAdapter("smoke-opencode"),
+    }),
+    Object.freeze({
+      kind: "codex-native" as const,
+      create: () => smokeAdapter("smoke-codex"),
+    }),
+  ]);
+}
+
+function startedAgentCount(): number {
+  return startedAgentIds.size;
+}
+
+function smokeAdapter(kind: string): ReturnType<WorkspaceAdapterRegistry["create"]> {
+  type SmokeAdapter = ReturnType<WorkspaceAdapterRegistry["create"]>;
+  type SmokeSession = Awaited<ReturnType<SmokeAdapter["start"]>>;
+  const capabilities = Object.freeze({
+    persistentSession: true,
+    streaming: false,
+    cancel: true,
+    loadSession: true,
+    transport: "scripted" as const,
+  });
+  return Object.freeze({
+    kind,
+    capabilities,
+    probe: async () => Object.freeze({ available: true, command: kind, version: "smoke" }),
+    start: async (config: Parameters<SmokeAdapter["start"]>[0]) => {
+      startedAgentIds.add(config.agentId);
+      const id = config.sessionId ?? `${kind}:${String(nextSmokeSession++)}`;
+      return Object.freeze({
+        id,
+        agentId: config.agentId,
+        capabilities,
+        status: "ready" as const,
+        prompt: async (input: Parameters<SmokeSession["prompt"]>[0]) => Object.freeze({
+          turnId: input.turnId,
+          text: "",
+          stopReason: "completed" as const,
+        }),
+        cancel: async () => undefined,
+        events: async function* () {
+          return;
+        },
+        stop: async () => undefined,
+      });
+    },
+  });
 }
 
 function finishWithError(error: unknown): void {

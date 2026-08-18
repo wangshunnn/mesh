@@ -299,6 +299,8 @@ Status: **planned; keep config-v1 unchanged**.
   proxy/network, permissions, and process exits
 - [ ] Project actionable Chinese recovery guidance without storing credentials
 - [ ] Distinguish unavailable, needs-setup, ready, starting, and failed states
+- [ ] Preserve attention-driven lazy startup and per-member retry/stop controls
+  while explaining failures
 - [ ] Add deterministic clean-machine onboarding tests and Electron smoke
 - [ ] Measure and document provider/model discovery for both built-in adapters
 - [ ] Approve the adapter capability contract and config migration before adding
