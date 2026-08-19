@@ -87,18 +87,46 @@ pnpm mesh timeline --limit 30
 
 ## 实现结构
 
-```text
-CLI -------------------------> @ai-mesh/workspace <--- Electron main
-                                      |
-                                      v
-                           collaboration runtime
-                             /       |        \
-                        adapters   Room     trace journal
-                                      |        |
-                                      +-- SQLite
+下图使用包名简写：`name` 代表 `@ai-mesh/name`。横向箭头表示直接内部依赖，纵向箭头
+表示组合分层。所有包目前都是私有 Workspace 包，尚未发布到 npm。
 
-React renderer ---> MeshClient ---> typed IPC ---> Electron main
+```text
++---------------------------------- PRODUCT CLIENTS -----------------------------------+
+| cli              --> protocol + workspace                                            |
+| desktop          --> application + protocol + workspace                              |
+| desktop renderer --> application + protocol only                                     |
++--------------------------------------------------------------------------------------+
+                                           |
+                                           v
++---------------------------------- COMPOSITION ROOT ----------------------------------+
+| workspace --> application + agent + collaboration + protocol + room                  |
+|              + adapter-acp + adapter-native + store-sqlite                           |
++--------------------------------------------------------------------------------------+
+                     +---------------------+-----------------------+
+                     |                                             |
+                     v                                             v
++--------- PRODUCT ORCHESTRATION ----------+   +--------- CONCRETE PROVIDERS ----------+
+| collaboration --> application + agent    |   | adapter-acp    --> agent              |
+|                   + protocol + room      |   | adapter-native --> agent              |
+|                   + runtime              |   | store-sqlite   --> protocol           |
+|                                          |   |                   + room              |
+|                                          |   |                   + runtime           |
++------------------------------------------+   +---------------------------------------+
+                     |                                             |
+                     +---------------------+-----------------------+
+                                           |
+                                           v
++---------------------------- CONTRACTS AND CORE POLICIES -----------------------------+
+| application --> protocol                                                             |
+| room        --> protocol                                                             |
+| runtime     --> room + protocol                                                      |
+| agent       --> (no internal package dependencies)                                   |
++--------------------------------------------------------------------------------------+
 ```
+
+`@ai-mesh/evals` 位于产品运行时之外，用来验证 `protocol`、`room` 和 `runtime`。
+完整依赖白名单由 `pnpm check:boundaries` 强制执行，并记录在
+[`docs/package-boundaries.md`](docs/package-boundaries.md) 中。
 
 客户端提交类型化意图，但不能自行选择更弱的一致性语义。Room 拥有 `append`、
 `compare-and-append` 和 `exclusive` 行为策略。序列号提供回放顺序；按 subject

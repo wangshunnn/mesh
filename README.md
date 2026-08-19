@@ -97,18 +97,49 @@ canonical checks for concurrency and reconciliation behavior.
 
 ## How it is built
 
-```text
-CLI -------------------------> @ai-mesh/workspace <--- Electron main
-                                      |
-                                      v
-                           collaboration runtime
-                             /       |        \
-                        adapters   Room     trace journal
-                                      |        |
-                                      +-- SQLite
+Package names below are shortened: `name` means `@ai-mesh/name`. Horizontal
+arrows show direct internal dependencies; vertical arrows show composition
+flow. All packages are currently private workspace packages, not published npm
+packages.
 
-React renderer ---> MeshClient ---> typed IPC ---> Electron main
+```text
++---------------------------------- PRODUCT CLIENTS -----------------------------------+
+| cli              --> protocol + workspace                                            |
+| desktop          --> application + protocol + workspace                              |
+| desktop renderer --> application + protocol only                                     |
++--------------------------------------------------------------------------------------+
+                                           |
+                                           v
++---------------------------------- COMPOSITION ROOT ----------------------------------+
+| workspace --> application + agent + collaboration + protocol + room                  |
+|              + adapter-acp + adapter-native + store-sqlite                           |
++--------------------------------------------------------------------------------------+
+                     +---------------------+-----------------------+
+                     |                                             |
+                     v                                             v
++--------- PRODUCT ORCHESTRATION ----------+   +--------- CONCRETE PROVIDERS ----------+
+| collaboration --> application + agent    |   | adapter-acp    --> agent              |
+|                   + protocol + room      |   | adapter-native --> agent              |
+|                   + runtime              |   | store-sqlite   --> protocol           |
+|                                          |   |                   + room              |
+|                                          |   |                   + runtime           |
++------------------------------------------+   +---------------------------------------+
+                     |                                             |
+                     +---------------------+-----------------------+
+                                           |
+                                           v
++---------------------------- CONTRACTS AND CORE POLICIES -----------------------------+
+| application --> protocol                                                             |
+| room        --> protocol                                                             |
+| runtime     --> room + protocol                                                      |
+| agent       --> (no internal package dependencies)                                   |
++--------------------------------------------------------------------------------------+
 ```
+
+`@ai-mesh/evals` sits outside the product runtime and verifies `protocol`,
+`room`, and `runtime`. The exact dependency allowlist is enforced by
+`pnpm check:boundaries` and documented in
+[`docs/package-boundaries.md`](docs/package-boundaries.md).
 
 Clients submit typed intents but cannot choose weaker consistency semantics.
 The Room owns append, compare-and-append, and exclusive action policies. Sequence
